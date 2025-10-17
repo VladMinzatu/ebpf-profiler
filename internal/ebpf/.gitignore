@@ -1,0 +1,5 @@
+# it is normally recommended that these are checked in as part of the workflow with the BPF CO-RE model
+# but for now, I'll only keep them locally, as my workflow just consists of me building and running locally
+profile_bpfeb.o
+profile_bpfel.o
+bpf/vmlinux.h
