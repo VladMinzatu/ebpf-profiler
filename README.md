@@ -12,5 +12,6 @@ go generate ./internal/ebpf && go build
 - exporting in different formats to integrate with different standard tools (e.g. pprof, flamegraphs) 
 - different integration options - transport (grpc, http)
 - packaging and deployment (docker, k8s)
+- cgroup and containerisation support
 - testing
 - note down limits of continuous profiling and how Go pprof and `perf` and others complement it (playbook)
