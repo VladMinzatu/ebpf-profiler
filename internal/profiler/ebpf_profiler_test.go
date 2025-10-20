@@ -25,7 +25,7 @@ func hotCaller() {
 
 func TestEbpfIntegration_SamplesOwnProcess(t *testing.T) {
 	if os.Geteuid() != 0 {
-		t.Skip("integration test requires root (or appropriate perf_event permissions)")
+		t.Fatalf("integration test requires root (or appropriate perf_event permissions)")
 	}
 
 	e, err := NewEbpfProfiler()
