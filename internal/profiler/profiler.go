@@ -1,12 +1,19 @@
 package profiler
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"runtime"
 	"sync"
 
 	"golang.org/x/sys/unix"
+)
+
+const (
+	missingSentinel = 0xFFFFFFFF // as used in the C code
+	maxStackFrames  = 127        // max frames in the stacks map (must match what the C code expects)
 )
 
 type Profiler struct {
@@ -78,6 +85,85 @@ func (p *Profiler) Stop() error {
 	return resultErr
 }
 
+// reads and merges the per-CPU stackId -> counts map
+func (p *Profiler) Snapshot() (map[uint64]uint64, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.started {
+		return nil, errors.New("profiler not started")
+	}
+
+	results := make(map[uint64]uint64)
+
+	iter := p.objs.Counts.Iterate()
+	var rawKey uint64
+
+	numCPUs := runtime.NumCPU()
+	valBytes := make([]byte, 8*numCPUs)
+
+	for iter.Next(&rawKey, &valBytes) {
+		buf := bytes.NewReader(valBytes)
+		var sum uint64
+		for i := 0; i < numCPUs; i++ {
+			var v uint64
+			if err := binary.Read(buf, binary.LittleEndian, &v); err != nil {
+				return nil, fmt.Errorf("decoding per-cpu values: %w", err)
+			}
+			sum += v
+		}
+		if sum > 0 {
+			results[rawKey] = sum
+		}
+	}
+	if err := iter.Err(); err != nil {
+		return nil, fmt.Errorf("iterate counts map: %w", err)
+	}
+
+	return results, nil
+}
+
+// looks up the user frames and kernel frames by the corresponding stackIds
+func (p *Profiler) LookupStacks(userID uint32, kernID uint32) ([]uint64, []uint64, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.started {
+		return nil, nil, errors.New("profiler not started")
+	}
+
+	readFrames := func(id uint32) ([]uint64, error) {
+		if id == missingSentinel {
+			return nil, nil
+		}
+
+		var raw [maxStackFrames]uint64
+		if err := p.objs.Stacks.Lookup(&id, &raw); err != nil {
+			return nil, nil
+		}
+		// trim zeros
+		n := 0
+		for i, a := range raw {
+			if a == 0 {
+				n = i
+				break
+			}
+			n = i + 1
+		}
+		frames := make([]uint64, n)
+		copy(frames, raw[:n])
+		return frames, nil
+	}
+
+	uFrames, err := readFrames(userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	kFrames, err := readFrames(kernID)
+	if err != nil {
+		return uFrames, nil, err
+	}
+	return uFrames, kFrames, nil
+}
+
 func (p *Profiler) createPerfEventsAndAttach(progFD int, targetPID int, samplingPeriodNs uint64) error {
 	numCPUs := runtime.NumCPU()
 	pfds := make([]int, 0, numCPUs)
@@ -121,4 +207,10 @@ func (p *Profiler) createPerfEventsAndAttach(progFD int, targetPID int, sampling
 	}
 	p.perfFDs = pfds
 	return nil
+}
+
+func UnpackKey(key uint64) (userID, kernID uint32) {
+	userID = uint32(key >> 32)
+	kernID = uint32(key & 0xffffffff)
+	return
 }
