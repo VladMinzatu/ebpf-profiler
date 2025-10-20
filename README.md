@@ -14,4 +14,4 @@ go generate ./internal/profiler && go build
 - packaging and deployment (docker, k8s)
 - cgroup and containerisation support
 - testing
-- note down limits of continuous profiling and how Go pprof and `perf` and others complement it (playbook)
+- note down limits of continuous profiling and how Go pprof and `perf` and others complement it (playbook) - does it make sense and can we do memory or locking profiling?
