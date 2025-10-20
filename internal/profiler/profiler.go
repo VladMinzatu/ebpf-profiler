@@ -1,8 +1,6 @@
 package profiler
 
 import (
-	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"runtime"
@@ -99,17 +97,12 @@ func (p *Profiler) Snapshot() (map[uint64]uint64, error) {
 	var rawKey uint64
 
 	numCPUs := runtime.NumCPU()
-	valBytes := make([]byte, 8*numCPUs)
+	perCpuVals := make([]uint64, numCPUs)
 
-	for iter.Next(&rawKey, &valBytes) {
-		buf := bytes.NewReader(valBytes)
+	for iter.Next(&rawKey, &perCpuVals) {
 		var sum uint64
 		for i := 0; i < numCPUs; i++ {
-			var v uint64
-			if err := binary.Read(buf, binary.LittleEndian, &v); err != nil {
-				return nil, fmt.Errorf("decoding per-cpu values: %w", err)
-			}
-			sum += v
+			sum += perCpuVals[i]
 		}
 		if sum > 0 {
 			results[rawKey] = sum

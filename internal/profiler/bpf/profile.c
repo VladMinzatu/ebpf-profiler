@@ -6,10 +6,13 @@
 
 #define MAX_STACKS 16384
 #define MAX_ENTRIES 65536
+#define MAX_STACK_FRAMES 127
 
 struct {
     __uint(type, BPF_MAP_TYPE_STACK_TRACE);
     __uint(max_entries, MAX_STACKS);
+    __type(key, __u32);
+    __type(value, __u64[MAX_STACK_FRAMES]);
 } stacks SEC(".maps");
 
 struct {
