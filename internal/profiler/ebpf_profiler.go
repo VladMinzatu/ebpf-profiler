@@ -14,29 +14,29 @@ const (
 	maxStackFrames  = 127        // max frames in the stacks map (must match what the C code expects)
 )
 
-type Profiler struct {
+type ebpfProfiler struct {
 	objs    profileObjects
 	perfFDs []int
 	mu      sync.Mutex
 	started bool
 }
 
-func NewProfiler() (*Profiler, error) {
-	var p Profiler
-	if err := loadProfileObjects(&p.objs, nil); err != nil {
+func NewEbpfProfiler() (*ebpfProfiler, error) {
+	var e ebpfProfiler
+	if err := loadProfileObjects(&e.objs, nil); err != nil {
 		return nil, fmt.Errorf("loading bpf objects: %w", err)
 	}
-	return &p, nil
+	return &e, nil
 }
 
-func (p *Profiler) Start(targetPID int, samplingPeriodNs uint64) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.started {
+func (e *ebpfProfiler) Start(targetPID int, samplingPeriodNs uint64) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.started {
 		return errors.New("profiler already attached")
 	}
 
-	prog := p.objs.profilePrograms.OnSample
+	prog := e.objs.profilePrograms.OnSample
 	if prog == nil {
 		return errors.New("BPF program OnSample is nil")
 	}
@@ -46,54 +46,54 @@ func (p *Profiler) Start(targetPID int, samplingPeriodNs uint64) error {
 		return errors.New("invalid program FD")
 	}
 
-	err := p.createPerfEventsAndAttach(progFD, targetPID, samplingPeriodNs)
+	err := e.createPerfEventsAndAttach(progFD, targetPID, samplingPeriodNs)
 	if err != nil {
 		return err
 	}
 
-	p.started = true
+	e.started = true
 	return nil
 }
 
-func (p *Profiler) Stop() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (e *ebpfProfiler) Stop() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 
-	if !p.started {
+	if !e.started {
 		// still close objects
-		_ = p.objs.Close()
+		_ = e.objs.Close()
 		return nil
 	}
 
 	var resultErr error
 	// disable and close perf fds
-	for _, fd := range p.perfFDs {
+	for _, fd := range e.perfFDs {
 		_ = unix.IoctlSetInt(fd, unix.PERF_EVENT_IOC_DISABLE, 0)
 		if err := unix.Close(fd); err != nil {
 			resultErr = fmt.Errorf("close perf fd: %w", err)
 		}
 	}
-	p.perfFDs = nil
-	p.started = false
+	e.perfFDs = nil
+	e.started = false
 
 	// close maps & programs
-	if err := p.objs.Close(); err != nil && resultErr == nil {
+	if err := e.objs.Close(); err != nil && resultErr == nil {
 		resultErr = fmt.Errorf("closing BPF objects: %w", err)
 	}
 	return resultErr
 }
 
 // reads and merges the per-CPU stackId -> counts map
-func (p *Profiler) Snapshot() (map[uint64]uint64, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if !p.started {
+func (e *ebpfProfiler) SnapshotCounts() (map[uint64]uint64, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.started {
 		return nil, errors.New("profiler not started")
 	}
 
 	results := make(map[uint64]uint64)
 
-	iter := p.objs.Counts.Iterate()
+	iter := e.objs.Counts.Iterate()
 	var rawKey uint64
 
 	numCPUs := runtime.NumCPU()
@@ -116,10 +116,10 @@ func (p *Profiler) Snapshot() (map[uint64]uint64, error) {
 }
 
 // looks up the user frames and kernel frames by the corresponding stackIds
-func (p *Profiler) LookupStacks(userID uint32, kernID uint32) ([]uint64, []uint64, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if !p.started {
+func (e *ebpfProfiler) LookupStacks(userID uint32, kernID uint32) ([]uint64, []uint64, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.started {
 		return nil, nil, errors.New("profiler not started")
 	}
 
@@ -129,7 +129,7 @@ func (p *Profiler) LookupStacks(userID uint32, kernID uint32) ([]uint64, []uint6
 		}
 
 		var raw [maxStackFrames]uint64
-		if err := p.objs.Stacks.Lookup(&id, &raw); err != nil {
+		if err := e.objs.Stacks.Lookup(&id, &raw); err != nil {
 			return nil, nil
 		}
 		// trim zeros
@@ -157,7 +157,7 @@ func (p *Profiler) LookupStacks(userID uint32, kernID uint32) ([]uint64, []uint6
 	return uFrames, kFrames, nil
 }
 
-func (p *Profiler) createPerfEventsAndAttach(progFD int, targetPID int, samplingPeriodNs uint64) error {
+func (e *ebpfProfiler) createPerfEventsAndAttach(progFD int, targetPID int, samplingPeriodNs uint64) error {
 	numCPUs := runtime.NumCPU()
 	pfds := make([]int, 0, numCPUs)
 
@@ -198,11 +198,11 @@ func (p *Profiler) createPerfEventsAndAttach(progFD int, targetPID int, sampling
 
 		pfds = append(pfds, fd)
 	}
-	p.perfFDs = pfds
+	e.perfFDs = pfds
 	return nil
 }
 
-func UnpackKey(key uint64) (userID, kernID uint32) {
+func unpackKey(key uint64) (userID, kernID uint32) {
 	userID = uint32(key >> 32)
 	kernID = uint32(key & 0xffffffff)
 	return
