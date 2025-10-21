@@ -1,7 +1,7 @@
 //go:build integration
 // +build integration
 
-package profiler
+package ebpf
 
 import (
 	"os"
@@ -28,9 +28,9 @@ func TestEbpfIntegration_SamplesOwnProcess(t *testing.T) {
 		t.Fatalf("integration test requires root (or appropriate perf_event permissions)")
 	}
 
-	e, err := NewEbpfProfiler()
+	e, err := NewEbpfBackend()
 	if err != nil {
-		t.Fatalf("NewProfiler: %v", err)
+		t.Fatalf("NewBackend: %v", err)
 	}
 	defer e.Stop()
 
@@ -66,7 +66,7 @@ func TestEbpfIntegration_SamplesOwnProcess(t *testing.T) {
 		t.Fatalf("no nonzero counts found")
 	}
 
-	userID, kernID := unpackKey(pickedKey)
+	userID, kernID := UnpackKey(pickedKey)
 	uframes, kframes, err := e.LookupStacks(userID, kernID)
 	if err != nil {
 		t.Fatalf("LookupStacks: %v", err)

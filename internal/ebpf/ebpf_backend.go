@@ -1,4 +1,4 @@
-package profiler
+package ebpf
 
 import (
 	"errors"
@@ -14,22 +14,22 @@ const (
 	maxStackFrames  = 127        // max frames in the stacks map (must match what the C code expects)
 )
 
-type ebpfProfiler struct {
+type EbpfBackend struct {
 	objs    profileObjects
 	perfFDs []int
 	mu      sync.Mutex
 	started bool
 }
 
-func NewEbpfProfiler() (*ebpfProfiler, error) {
-	var e ebpfProfiler
+func NewEbpfBackend() (*EbpfBackend, error) {
+	var e EbpfBackend
 	if err := loadProfileObjects(&e.objs, nil); err != nil {
 		return nil, fmt.Errorf("loading bpf objects: %w", err)
 	}
 	return &e, nil
 }
 
-func (e *ebpfProfiler) Start(targetPID int, samplingPeriodNs uint64) error {
+func (e *EbpfBackend) Start(targetPID int, samplingPeriodNs uint64) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.started {
@@ -55,7 +55,7 @@ func (e *ebpfProfiler) Start(targetPID int, samplingPeriodNs uint64) error {
 	return nil
 }
 
-func (e *ebpfProfiler) Stop() error {
+func (e *EbpfBackend) Stop() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -84,7 +84,7 @@ func (e *ebpfProfiler) Stop() error {
 }
 
 // reads and merges the per-CPU stackId -> counts map
-func (e *ebpfProfiler) SnapshotCounts() (map[uint64]uint64, error) {
+func (e *EbpfBackend) SnapshotCounts() (map[uint64]uint64, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if !e.started {
@@ -116,7 +116,7 @@ func (e *ebpfProfiler) SnapshotCounts() (map[uint64]uint64, error) {
 }
 
 // looks up the user frames and kernel frames by the corresponding stackIds
-func (e *ebpfProfiler) LookupStacks(userID uint32, kernID uint32) ([]uint64, []uint64, error) {
+func (e *EbpfBackend) LookupStacks(userID uint32, kernID uint32) ([]uint64, []uint64, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if !e.started {
@@ -157,7 +157,7 @@ func (e *ebpfProfiler) LookupStacks(userID uint32, kernID uint32) ([]uint64, []u
 	return uFrames, kFrames, nil
 }
 
-func (e *ebpfProfiler) createPerfEventsAndAttach(progFD int, targetPID int, samplingPeriodNs uint64) error {
+func (e *EbpfBackend) createPerfEventsAndAttach(progFD int, targetPID int, samplingPeriodNs uint64) error {
 	numCPUs := runtime.NumCPU()
 	pfds := make([]int, 0, numCPUs)
 
@@ -202,7 +202,7 @@ func (e *ebpfProfiler) createPerfEventsAndAttach(progFD int, targetPID int, samp
 	return nil
 }
 
-func unpackKey(key uint64) (userID, kernID uint32) {
+func UnpackKey(key uint64) (userID, kernID uint32) {
 	userID = uint32(key >> 32)
 	kernID = uint32(key & 0xffffffff)
 	return

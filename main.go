@@ -8,11 +8,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/VladMinzatu/ebpf-profiler/internal/ebpf"
 	"github.com/VladMinzatu/ebpf-profiler/internal/profiler"
 )
 
 func main() {
-	backend, err := profiler.NewEbpfProfiler()
+	backend, err := ebpf.NewEbpfBackend()
 	if err != nil {
 		slog.Error("Failed to initialise ebpf backend", "error", err)
 		os.Exit(1)

@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/VladMinzatu/ebpf-profiler/internal/ebpf"
 )
 
 type EbpfBackend interface {
@@ -118,7 +120,7 @@ func (p *Profiler) collector() {
 
 			var samples []Sample
 			for key, cnt := range counts {
-				userID, kernID := unpackKey(key)
+				userID, kernID := ebpf.UnpackKey(key)
 
 				userStack, kernStack, err := p.backend.LookupStacks(userID, kernID)
 				if err != nil {
