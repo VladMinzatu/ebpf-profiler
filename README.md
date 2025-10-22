@@ -9,7 +9,7 @@ go generate ./internal/ebpf && go build
 
 ## ebpf integration testing
 
-The low level functionality interfacing with ebpf is isolated in `./internal/profiler/ebpf_profiler.go`. This includes all the low level code for setting up perf events, attaching the program, reading the stack id counts and looking up the stack frames in bpf maps.
+The low level functionality interfacing with ebpf is isolated in `./internal/ebpf/ebpf_backend.go`. This includes all the low level code for setting up perf events, attaching the program, reading the stack id counts and looking up the stack frames in bpf maps.
 
 There is one integration test for this that can be run like this (note sudo):
 ```
