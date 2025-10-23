@@ -2,6 +2,7 @@ package profiler
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -84,14 +85,83 @@ func TestProfiler_CollectorEmitsSamples(t *testing.T) {
 	}
 }
 
+func TestProfiler_CollectorDropsWhenConsumerBusy(t *testing.T) {
+	userID := uint32(5)
+	key := packKey(userID, 0)
+	f := &mockBackend{
+		snapshots: []map[uint64]uint64{
+			{key: 1},
+		},
+		stacks: map[uint32][]uint64{
+			userID: {0x10},
+		},
+	}
+
+	p, err := NewProfiler(1, 100, 20*time.Millisecond, f)
+	if err != nil {
+		t.Fatalf("NewProfiler: %v", err)
+	}
+
+	if err := p.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// read the first sample to fill the buffer
+	select {
+	case <-p.Samples():
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("timed out waiting for first sample")
+	}
+
+	// and now we fail to read samples for a while
+	time.Sleep(3 * p.collectInterval)
+
+	select {
+	case <-p.Samples():
+	default:
+	}
+
+	// stop should return without being blocked
+	if err := p.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+}
+
+func TestProfiler_HandlesSnapshotError(t *testing.T) {
+	f := &mockBackend{
+		snapshotError: true,
+	}
+
+	p, err := NewProfiler(1, 100, 20*time.Millisecond, f)
+	if err != nil {
+		t.Fatalf("NewProfiler: %v", err)
+	}
+
+	if err := p.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer p.Stop()
+
+	var samples []Sample
+	select {
+	case samples = <-p.Samples():
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	if samples != nil {
+		t.Fatalf("failure to collect sample from ebpf map should have been handled gracefully - empty slice")
+	}
+}
+
 type mockBackend struct {
 	mu sync.Mutex
 
 	startErr error
 	stopErr  error
 
-	snapshots []map[uint64]uint64
-	stacks    map[uint32][]uint64
+	snapshots     []map[uint64]uint64
+	stacks        map[uint32][]uint64
+	snapshotError bool
 
 	startCalled bool
 	stopCalled  bool
@@ -123,6 +193,10 @@ func (f *mockBackend) SnapshotCounts() (map[uint64]uint64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.snapshotCalls++
+
+	if f.snapshotError {
+		return nil, fmt.Errorf("snapshotting counts failed to read from ebpf map")
+	}
 
 	if len(f.snapshots) == 0 {
 		return map[uint64]uint64{}, nil
