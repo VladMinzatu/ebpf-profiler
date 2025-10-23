@@ -153,6 +153,25 @@ func TestProfiler_HandlesSnapshotError(t *testing.T) {
 	}
 }
 
+func TestProfiler_StartNotIdempotent(t *testing.T) {
+	f := &mockBackend{}
+	p, err := NewProfiler(1, 100, 20*time.Millisecond, f)
+	if err != nil {
+		t.Fatalf("NewProfiler: %v", err)
+	}
+
+	if err := p.Start(); err != nil {
+		t.Fatalf("Start first time: %v", err)
+	}
+
+	if err := p.Start(); err == nil {
+		t.Fatalf("expected error on second Start, got nil")
+	}
+	if err := p.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+}
+
 type mockBackend struct {
 	mu sync.Mutex
 
