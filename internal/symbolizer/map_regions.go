@@ -17,7 +17,7 @@ type MapRegion struct {
 }
 
 type MapRegions struct {
-	Regions []MapRegion
+	regions []MapRegion
 }
 
 func ReadProcMaps(pid int) (*MapRegions, error) {
@@ -41,7 +41,17 @@ func ReadProcMaps(pid int) (*MapRegions, error) {
 	if err := s.Err(); err != nil {
 		return nil, err
 	}
-	return &MapRegions{Regions: regions}, nil
+	return &MapRegions{regions: regions}, nil
+}
+
+func (m *MapRegions) FindRegion(ip uint64) *MapRegion {
+	// TODO: maps should be in order so we could optimize to a binary search or use a tree
+	for _, m := range m.regions {
+		if ip >= m.Start && ip < m.End {
+			return &m
+		}
+	}
+	return nil
 }
 
 func parseEntry(line string) (MapRegion, error) {
