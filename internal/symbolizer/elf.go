@@ -8,13 +8,14 @@ import (
 	"strings"
 )
 
+// TODO: DWARF lookup fallback (to be supported as optional)
 type ElfSymbol struct {
 	Name string
 	PC   uint64
 }
 
 type Section struct {
-	GopclnSec *elf.Section
+	GopclnSec *elf.Section //TODO: gopclntab parsing still needed for pc->function,file
 	ElfSymbol *ElfSymbol
 }
 
