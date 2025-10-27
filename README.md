@@ -18,7 +18,7 @@ sudo go test -tags=integration ./...
 (Go will need to be added to the secure_path in sudo config for this to work).
 
 ## Future development goals
-- explore different capabilities (e.g. DWARF available or not, compilation flags, etc.)
+- explore different capabilities (e.g. DWARF available or not, gopcln(tab) section for go binaries, compilation flags, etc.)
 - exporting in different formats to integrate with different standard tools (e.g. pprof, flamegraphs) 
 - different integration options - transport (grpc, http)
 - packaging and deployment (docker, k8s)

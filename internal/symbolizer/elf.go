@@ -8,32 +8,24 @@ import (
 	"strings"
 )
 
-// TODO: DWARF lookup fallback (to be supported as optional)
 type ElfSymbol struct {
 	Name string
 	PC   uint64
 }
 
-type Section struct {
-	GopclnSec *elf.Section //TODO: gopclntab parsing still needed for pc->function,file
-	ElfSymbol *ElfSymbol
-}
-
-func GetRelevantSection(pid int, pc uint64, m *MapRegion) (*Section, error) {
+func GetRelevantSection(pid int, pc uint64, m *MapRegion) (*ElfSymbol, error) {
 	ef, err := openELFForMapping(pid, m)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open ELF for mapping: %v", err)
 	}
 	defer ef.Close()
 
-	gsec := findGopclnSection(ef)
-
 	slide := computeSlide(ef, m)
 	sym, err := symbolFromELF(ef, pc, slide)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load symbol from ELF: %v", err)
 	}
-	return &Section{GopclnSec: gsec, ElfSymbol: sym}, nil
+	return sym, nil
 }
 
 func openELFForMapping(pid int, m *MapRegion) (*elf.File, error) {
@@ -57,18 +49,6 @@ func openELFForMapping(pid int, m *MapRegion) (*elf.File, error) {
 		return nil, err
 	}
 	return ef, nil
-}
-
-func findGopclnSection(ef *elf.File) *elf.Section {
-	for _, s := range ef.Sections {
-		if s == nil {
-			continue
-		}
-		if s.Name == ".gopclntab" || s.Name == "gopclntab" || strings.Contains(s.Name, "gopcln") {
-			return s
-		}
-	}
-	return nil
 }
 
 func symbolFromELF(ef *elf.File, pc uint64, slide uint64) (*ElfSymbol, error) {
