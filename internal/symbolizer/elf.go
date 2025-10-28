@@ -7,12 +7,12 @@ import (
 	"strings"
 )
 
-type ElfSymbol struct {
+type Symbol struct {
 	Name string
 	PC   uint64
 }
 
-func GetSymbol(pid int, pc uint64, m *MapRegion) (*ElfSymbol, error) {
+func GetSymbol(pid int, pc uint64, m *MapRegion) (*Symbol, error) {
 	ef, err := openELFForMapping(pid, m)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open ELF for mapping: %v", err)

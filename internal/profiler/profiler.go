@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/VladMinzatu/ebpf-profiler/internal/ebpf"
+	"github.com/VladMinzatu/ebpf-profiler/internal/symbolizer"
 )
 
 type EbpfBackend interface {
@@ -17,10 +18,14 @@ type EbpfBackend interface {
 	LookupStacks(userID uint32, kernID uint32) ([]uint64, []uint64, error)
 }
 
+type Symbolizer interface {
+	Symbolize(userStack []uint64, kernelStack []uint64) ([]symbolizer.Symbol, []symbolizer.Symbol)
+}
+
 type Sample struct {
 	Timestamp   time.Time
-	UserStack   []uint64
-	KernelStack []uint64
+	UserStack   []symbolizer.Symbol
+	KernelStack []symbolizer.Symbol
 	Count       uint64
 }
 
@@ -29,6 +34,7 @@ type Profiler struct {
 	sampleHz        int
 	collectInterval time.Duration
 	backend         EbpfBackend
+	symbolizer      Symbolizer
 
 	samplesCh chan []Sample
 
@@ -39,7 +45,7 @@ type Profiler struct {
 	wg      sync.WaitGroup
 }
 
-func NewProfiler(pid int, sampleHz int, collectInterval time.Duration, backend EbpfBackend) (*Profiler, error) {
+func NewProfiler(pid int, sampleHz int, collectInterval time.Duration, backend EbpfBackend, symbolizer Symbolizer) (*Profiler, error) {
 	if collectInterval <= 1*time.Millisecond {
 		return nil, errors.New("invalid collectInterval; must be > 1ms")
 	}
@@ -52,6 +58,7 @@ func NewProfiler(pid int, sampleHz int, collectInterval time.Duration, backend E
 		sampleHz:        sampleHz,
 		collectInterval: collectInterval,
 		backend:         backend,
+		symbolizer:      symbolizer,
 		ctx:             ctx,
 		cancel:          cancel,
 		samplesCh:       make(chan []Sample, 1),
@@ -122,12 +129,13 @@ func (p *Profiler) collector() {
 			for key, cnt := range counts {
 				userID, kernID := ebpf.UnpackKey(key)
 
-				userStack, kernStack, err := p.backend.LookupStacks(userID, kernID)
+				userPCs, kernPCs, err := p.backend.LookupStacks(userID, kernID)
 				if err != nil {
 					slog.Warn("Failed to resolve stack keys", "error", err)
 					continue
 				}
 
+				userStack, kernStack := p.symbolizer.Symbolize(userPCs, kernPCs)
 				s := Sample{
 					Timestamp:   t,
 					UserStack:   userStack,

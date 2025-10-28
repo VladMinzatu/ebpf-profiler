@@ -13,7 +13,7 @@ type elfSymbolResolver struct {
 	slide uint64
 }
 
-func (r *elfSymbolResolver) Resolve(pc uint64) (*ElfSymbol, error) {
+func (r *elfSymbolResolver) Resolve(pc uint64) (*Symbol, error) {
 	syms := make([]elf.Symbol, 0)
 	if section := r.ef.Section(".symtab"); section != nil {
 		st, err := r.ef.Symbols()
@@ -47,7 +47,7 @@ func (r *elfSymbolResolver) Resolve(pc uint64) (*ElfSymbol, error) {
 	if best == nil {
 		return nil, errors.New("no matching symbol")
 	}
-	return &ElfSymbol{Name: best.Name, PC: target - best.Value}, nil
+	return &Symbol{Name: best.Name, PC: target - best.Value}, nil
 }
 
 type dwarfSymbolResolver struct {
@@ -55,7 +55,7 @@ type dwarfSymbolResolver struct {
 	slide uint64
 }
 
-func (r *dwarfSymbolResolver) Resolve(pc uint64) (*ElfSymbol, error) {
+func (r *dwarfSymbolResolver) Resolve(pc uint64) (*Symbol, error) {
 	d, err := r.ef.DWARF()
 	if err != nil {
 		return nil, err
@@ -131,7 +131,7 @@ func (r *dwarfSymbolResolver) Resolve(pc uint64) (*ElfSymbol, error) {
 		if name == "" {
 			return nil, errors.New("dwarf subprogram without name")
 		}
-		return &ElfSymbol{Name: name, PC: offset}, nil
+		return &Symbol{Name: name, PC: offset}, nil
 	}
 	return nil, errors.New("pc not found in DWARF")
 }
@@ -141,7 +141,7 @@ type goSymbolResolver struct {
 	slide uint64
 }
 
-func (r *goSymbolResolver) Resolve(pc uint64) (*ElfSymbol, error) {
+func (r *goSymbolResolver) Resolve(pc uint64) (*Symbol, error) {
 	pcln := r.ef.Section(".gopclntab")
 	if pcln == nil {
 		return nil, errors.New("no .gopclntab section")
@@ -180,5 +180,5 @@ func (r *goSymbolResolver) Resolve(pc uint64) (*ElfSymbol, error) {
 	if target >= fn.Entry {
 		offset = target - fn.Entry
 	}
-	return &ElfSymbol{Name: fn.Name, PC: offset}, nil
+	return &Symbol{Name: fn.Name, PC: offset}, nil
 }
