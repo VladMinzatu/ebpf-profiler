@@ -2,7 +2,6 @@ package symbolizer
 
 import (
 	"debug/elf"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -13,7 +12,7 @@ type ElfSymbol struct {
 	PC   uint64
 }
 
-func GetRelevantSection(pid int, pc uint64, m *MapRegion) (*ElfSymbol, error) {
+func GetSymbol(pid int, pc uint64, m *MapRegion) (*ElfSymbol, error) {
 	ef, err := openELFForMapping(pid, m)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open ELF for mapping: %v", err)
@@ -21,7 +20,8 @@ func GetRelevantSection(pid int, pc uint64, m *MapRegion) (*ElfSymbol, error) {
 	defer ef.Close()
 
 	slide := computeSlide(ef, m)
-	sym, err := symbolFromELF(ef, pc, slide)
+	resolver := &elfSymbolResolver{ef: ef, slide: slide}
+	sym, err := resolver.Resolve(pc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load symbol from ELF: %v", err)
 	}
@@ -49,43 +49,6 @@ func openELFForMapping(pid int, m *MapRegion) (*elf.File, error) {
 		return nil, err
 	}
 	return ef, nil
-}
-
-func symbolFromELF(ef *elf.File, pc uint64, slide uint64) (*ElfSymbol, error) {
-	syms := make([]elf.Symbol, 0)
-	if section := ef.Section(".symtab"); section != nil {
-		st, err := ef.Symbols()
-		if err == nil {
-			syms = append(syms, st...)
-		}
-	}
-	if section := ef.Section(".dynsym"); section != nil {
-		st, err := ef.DynamicSymbols()
-		if err == nil {
-			syms = append(syms, st...)
-		}
-	}
-	if len(syms) == 0 {
-		return nil, errors.New("no symbol tables available in ELF")
-	}
-
-	target := pc - slide
-	var best *elf.Symbol
-	for i := range syms {
-		s := &syms[i]
-		if s.Value == 0 {
-			continue
-		}
-		if s.Value <= target {
-			if best == nil || s.Value > best.Value {
-				best = s
-			}
-		}
-	}
-	if best == nil {
-		return nil, errors.New("no matching symbol")
-	}
-	return &ElfSymbol{Name: best.Name, PC: target - best.Value}, nil
 }
 
 func computeSlide(ef *elf.File, m *MapRegion) uint64 {
