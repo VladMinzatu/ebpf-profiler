@@ -19,7 +19,7 @@ type EbpfBackend interface {
 }
 
 type Symbolizer interface {
-	Symbolize(userStack []uint64, kernelStack []uint64) ([]symbolizer.Symbol, []symbolizer.Symbol)
+	Symbolize(userStack []uint64, kernelStack []uint64) ([]symbolizer.Symbol, []symbolizer.Symbol, error)
 }
 
 type Sample struct {
@@ -135,7 +135,11 @@ func (p *Profiler) collector() {
 					continue
 				}
 
-				userStack, kernStack := p.symbolizer.Symbolize(userPCs, kernPCs)
+				userStack, kernStack, err := p.symbolizer.Symbolize(userPCs, kernPCs)
+				if err != nil {
+					slog.Warn("Failed to symbolize stacks", "error", err)
+					continue
+				}
 				s := Sample{
 					Timestamp:   t,
 					UserStack:   userStack,

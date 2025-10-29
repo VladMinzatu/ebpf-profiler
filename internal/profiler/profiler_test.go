@@ -6,11 +6,14 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/VladMinzatu/ebpf-profiler/internal/symbolizer"
 )
 
 func TestProfiler_StartStop_CallsBackend(t *testing.T) {
 	f := &mockBackend{}
-	p, err := NewProfiler(1234, 100, 20*time.Millisecond, f)
+	sym := &mockSymbolizer{}
+	p, err := NewProfiler(1234, 100, 20*time.Millisecond, f, sym)
 	if err != nil {
 		t.Fatalf("NewProfiler: %v", err)
 	}
@@ -58,7 +61,14 @@ func TestProfiler_CollectorEmitsSamples(t *testing.T) {
 		},
 	}
 
-	p, err := NewProfiler(1, 100, 20*time.Millisecond, f)
+	sym := &mockSymbolizer{
+		userMap: map[uint64]symbolizer.Symbol{
+			0x1000: {Name: "f1", PC: 0},
+			0x2000: {Name: "f2", PC: 0},
+		},
+	}
+
+	p, err := NewProfiler(1, 100, 20*time.Millisecond, f, sym)
 	if err != nil {
 		t.Fatalf("NewProfiler: %v", err)
 	}
@@ -77,7 +87,7 @@ func TestProfiler_CollectorEmitsSamples(t *testing.T) {
 		if s.Count != 42 {
 			t.Fatalf("unexpected count: %d", s.Count)
 		}
-		if len(s.UserStack) != 2 || s.UserStack[0] != 0x1000 {
+		if len(s.UserStack) != 2 || s.UserStack[0].Name != "f1" || s.UserStack[1].Name != "f2" {
 			t.Fatalf("unexpected user stack: %#v", s.UserStack)
 		}
 	case <-time.After(500 * time.Millisecond):
@@ -97,7 +107,11 @@ func TestProfiler_CollectorDropsWhenConsumerBusy(t *testing.T) {
 		},
 	}
 
-	p, err := NewProfiler(1, 100, 20*time.Millisecond, f)
+	sym := &mockSymbolizer{
+		userMap: map[uint64]symbolizer.Symbol{0x10: {Name: "f", PC: 0}},
+	}
+
+	p, err := NewProfiler(1, 100, 20*time.Millisecond, f, sym)
 	if err != nil {
 		t.Fatalf("NewProfiler: %v", err)
 	}
@@ -132,7 +146,8 @@ func TestProfiler_HandlesSnapshotError(t *testing.T) {
 		snapshotError: true,
 	}
 
-	p, err := NewProfiler(1, 100, 20*time.Millisecond, f)
+	sym := &mockSymbolizer{}
+	p, err := NewProfiler(1, 100, 20*time.Millisecond, f, sym)
 	if err != nil {
 		t.Fatalf("NewProfiler: %v", err)
 	}
@@ -155,7 +170,8 @@ func TestProfiler_HandlesSnapshotError(t *testing.T) {
 
 func TestProfiler_StartNotIdempotent(t *testing.T) {
 	f := &mockBackend{}
-	p, err := NewProfiler(1, 100, 20*time.Millisecond, f)
+	sym := &mockSymbolizer{}
+	p, err := NewProfiler(1, 100, 20*time.Millisecond, f, sym)
 	if err != nil {
 		t.Fatalf("NewProfiler: %v", err)
 	}
@@ -169,6 +185,60 @@ func TestProfiler_StartNotIdempotent(t *testing.T) {
 	}
 	if err := p.Stop(); err != nil {
 		t.Fatalf("Stop: %v", err)
+	}
+}
+
+func TestProfiler_HandlesLookupStacksError(t *testing.T) {
+	userID := uint32(9)
+	key := packKey(userID, 0)
+	f := &mockBackend{
+		snapshots: []map[uint64]uint64{{key: 5}},
+		stacks:    nil,
+	}
+	sym := &mockSymbolizer{}
+	p, err := NewProfiler(1, 100, 10*time.Millisecond, f, sym)
+	if err != nil {
+		t.Fatalf("NewProfiler: %v", err)
+	}
+	if err := p.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer p.Stop()
+
+	select {
+	case samples := <-p.Samples():
+		if len(samples) != 0 {
+			t.Fatalf("expected 0 samples due to lookup error, got %d", len(samples))
+		}
+	case <-time.After(200 * time.Millisecond):
+		// acceptable: send was skipped
+	}
+}
+
+func TestProfiler_HandlesSymbolizerError(t *testing.T) {
+	userID := uint32(11)
+	key := packKey(userID, 0)
+	f := &mockBackend{
+		snapshots: []map[uint64]uint64{{key: 3}},
+		stacks:    map[uint32][]uint64{userID: {0x1}},
+	}
+	sym := &mockSymbolizer{userErr: fmt.Errorf("boom")}
+	p, err := NewProfiler(1, 100, 10*time.Millisecond, f, sym)
+	if err != nil {
+		t.Fatalf("NewProfiler: %v", err)
+	}
+	if err := p.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer p.Stop()
+
+	select {
+	case samples := <-p.Samples():
+		if len(samples) != 0 {
+			t.Fatalf("expected 0 samples due to symbolize error, got %d", len(samples))
+		}
+	case <-time.After(200 * time.Millisecond):
+		// acceptable: send skipped due to the error
 	}
 }
 
@@ -248,6 +318,36 @@ func (f *mockBackend) LookupStacks(userID uint32, kernID uint32) ([]uint64, []ui
 	uf := make([]uint64, len(sf))
 	copy(uf, sf)
 	return uf, nil, nil
+}
+
+type mockSymbolizer struct {
+	userErr   error
+	kernelErr error
+	userMap   map[uint64]symbolizer.Symbol
+	kernelMap map[uint64]symbolizer.Symbol
+}
+
+func (m *mockSymbolizer) Symbolize(userStack []uint64, kernelStack []uint64) ([]symbolizer.Symbol, []symbolizer.Symbol, error) {
+	if m.userErr != nil || m.kernelErr != nil {
+		return nil, nil, fmt.Errorf("symbolize error")
+	}
+	var us []symbolizer.Symbol
+	for _, pc := range userStack {
+		if sym, ok := m.userMap[pc]; ok {
+			us = append(us, sym)
+		} else {
+			us = append(us, symbolizer.Symbol{Name: fmt.Sprintf("0x%x", pc)})
+		}
+	}
+	var ks []symbolizer.Symbol
+	for _, pc := range kernelStack {
+		if sym, ok := m.kernelMap[pc]; ok {
+			ks = append(ks, sym)
+		} else {
+			ks = append(ks, symbolizer.Symbol{Name: fmt.Sprintf("0x%x", pc)})
+		}
+	}
+	return us, ks, nil
 }
 
 func packKey(user, kern uint32) uint64 {
