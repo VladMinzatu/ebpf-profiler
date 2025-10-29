@@ -10,6 +10,7 @@ import (
 
 	"github.com/VladMinzatu/ebpf-profiler/internal/ebpf"
 	"github.com/VladMinzatu/ebpf-profiler/internal/profiler"
+	"github.com/VladMinzatu/ebpf-profiler/internal/symbolizer"
 )
 
 func main() {
@@ -18,7 +19,9 @@ func main() {
 		slog.Error("Failed to initialise ebpf backend", "error", err)
 		os.Exit(1)
 	}
-	p, err := profiler.NewProfiler(os.Getegid(), 1000, 1*time.Second, backend)
+
+	symbolizer := &symbolizer.Symbolizer{}
+	p, err := profiler.NewProfiler(os.Getegid(), 1000, 1*time.Second, backend, symbolizer)
 	if err != nil {
 		slog.Error("Failed to initialise profiler", "error", err)
 		os.Exit(1)
