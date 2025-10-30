@@ -32,7 +32,6 @@ func (s *UserSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve symbol for pc=%d: %v", pc, err)
 		}
-		slog.Error(symbol.Name)
 		symbols = append(symbols, *symbol)
 	}
 	return symbols, nil
