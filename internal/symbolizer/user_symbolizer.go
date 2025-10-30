@@ -8,22 +8,12 @@ import (
 	"strings"
 )
 
-type Symbol struct {
-	Name string
-	PC   uint64
-}
-
-type SymbolResolver interface {
-	Resolve(ef *elf.File, pc uint64, slide uint64) (*Symbol, error)
-}
-
 type Symbolizer struct {
-	pid      int
-	resolver SymbolResolver
+	pid int
 }
 
-func NewSymbolizer(pid int, resolver SymbolResolver) *Symbolizer {
-	return &Symbolizer{pid: pid, resolver: resolver}
+func NewSymbolizer(pid int) *Symbolizer {
+	return &Symbolizer{pid: pid}
 }
 
 func (s *Symbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
@@ -56,7 +46,7 @@ func (s *Symbolizer) GetSymbol(pid int, pc uint64, m *MapRegion) (*Symbol, error
 	defer ef.Close()
 
 	slide := computeSlide(ef, m)
-	sym, err := s.resolver.Resolve(ef, pc, slide)
+	sym, err := ResolvePCFromELF(ef, pc, slide)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load symbol from ELF: %v", err)
 	}
