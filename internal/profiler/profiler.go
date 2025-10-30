@@ -19,7 +19,7 @@ type EbpfBackend interface {
 }
 
 type Symbolizer interface {
-	Symbolize(userStack []uint64, kernelStack []uint64) ([]symbolizer.Symbol, []symbolizer.Symbol, error)
+	Symbolize(stack []uint64) ([]symbolizer.Symbol, error)
 }
 
 type Sample struct {
@@ -30,11 +30,12 @@ type Sample struct {
 }
 
 type Profiler struct {
-	pid             int
-	sampleHz        int
-	collectInterval time.Duration
-	backend         EbpfBackend
-	symbolizer      Symbolizer
+	pid              int
+	sampleHz         int
+	collectInterval  time.Duration
+	backend          EbpfBackend
+	userSymbolizer   Symbolizer
+	kernelSymbolizer Symbolizer
 
 	samplesCh chan []Sample
 
@@ -45,7 +46,7 @@ type Profiler struct {
 	wg      sync.WaitGroup
 }
 
-func NewProfiler(pid int, sampleHz int, collectInterval time.Duration, backend EbpfBackend, symbolizer Symbolizer) (*Profiler, error) {
+func NewProfiler(pid int, sampleHz int, collectInterval time.Duration, backend EbpfBackend, userSymbolizer Symbolizer, kernelSymbolizer Symbolizer) (*Profiler, error) {
 	if collectInterval <= 1*time.Millisecond {
 		return nil, errors.New("invalid collectInterval; must be > 1ms")
 	}
@@ -55,13 +56,14 @@ func NewProfiler(pid int, sampleHz int, collectInterval time.Duration, backend E
 
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Profiler{pid: pid,
-		sampleHz:        sampleHz,
-		collectInterval: collectInterval,
-		backend:         backend,
-		symbolizer:      symbolizer,
-		ctx:             ctx,
-		cancel:          cancel,
-		samplesCh:       make(chan []Sample, 1),
+		sampleHz:         sampleHz,
+		collectInterval:  collectInterval,
+		backend:          backend,
+		userSymbolizer:   userSymbolizer,
+		kernelSymbolizer: kernelSymbolizer,
+		ctx:              ctx,
+		cancel:           cancel,
+		samplesCh:        make(chan []Sample, 1),
 	}, nil
 }
 
@@ -135,9 +137,14 @@ func (p *Profiler) collector() {
 					continue
 				}
 
-				userStack, kernStack, err := p.symbolizer.Symbolize(userPCs, kernPCs)
+				userStack, err := p.userSymbolizer.Symbolize(userPCs)
 				if err != nil {
-					slog.Warn("Failed to symbolize stacks", "error", err)
+					slog.Warn("Failed to symbolize user stack", "error", err)
+					continue
+				}
+				kernStack, err := p.kernelSymbolizer.Symbolize(kernPCs)
+				if err != nil {
+					slog.Warn("Failed to symbolize user stack", "error", err)
 					continue
 				}
 				s := Sample{

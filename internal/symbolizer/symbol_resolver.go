@@ -8,21 +8,19 @@ import (
 	"fmt"
 )
 
-type elfSymbolResolver struct {
-	ef    *elf.File
-	slide uint64
+type ElfSymbolResolver struct {
 }
 
-func (r *elfSymbolResolver) Resolve(pc uint64) (*Symbol, error) {
+func (r *ElfSymbolResolver) Resolve(ef *elf.File, pc uint64, slide uint64) (*Symbol, error) {
 	syms := make([]elf.Symbol, 0)
-	if section := r.ef.Section(".symtab"); section != nil {
-		st, err := r.ef.Symbols()
+	if section := ef.Section(".symtab"); section != nil {
+		st, err := ef.Symbols()
 		if err == nil {
 			syms = append(syms, st...)
 		}
 	}
-	if section := r.ef.Section(".dynsym"); section != nil {
-		st, err := r.ef.DynamicSymbols()
+	if section := ef.Section(".dynsym"); section != nil {
+		st, err := ef.DynamicSymbols()
 		if err == nil {
 			syms = append(syms, st...)
 		}
@@ -31,7 +29,7 @@ func (r *elfSymbolResolver) Resolve(pc uint64) (*Symbol, error) {
 		return nil, errors.New("no symbol tables available in ELF")
 	}
 
-	target := pc - r.slide
+	target := pc - slide
 	var best *elf.Symbol
 	for i := range syms {
 		s := &syms[i]
@@ -50,17 +48,15 @@ func (r *elfSymbolResolver) Resolve(pc uint64) (*Symbol, error) {
 	return &Symbol{Name: best.Name, PC: target - best.Value}, nil
 }
 
-type dwarfSymbolResolver struct {
-	ef    *elf.File
-	slide uint64
+type DwarfSymbolResolver struct {
 }
 
-func (r *dwarfSymbolResolver) Resolve(pc uint64) (*Symbol, error) {
-	d, err := r.ef.DWARF()
+func (r *DwarfSymbolResolver) Resolve(ef *elf.File, pc uint64, slide uint64) (*Symbol, error) {
+	d, err := ef.DWARF()
 	if err != nil {
 		return nil, err
 	}
-	target := pc - r.slide
+	target := pc - slide
 
 	rdr := d.Reader()
 	for {
@@ -136,13 +132,11 @@ func (r *dwarfSymbolResolver) Resolve(pc uint64) (*Symbol, error) {
 	return nil, errors.New("pc not found in DWARF")
 }
 
-type goSymbolResolver struct {
-	ef    *elf.File
-	slide uint64
+type GoSymbolResolver struct {
 }
 
-func (r *goSymbolResolver) Resolve(pc uint64) (*Symbol, error) {
-	pcln := r.ef.Section(".gopclntab")
+func (r *GoSymbolResolver) Resolve(ef *elf.File, pc uint64, slide uint64) (*Symbol, error) {
+	pcln := ef.Section(".gopclntab")
 	if pcln == nil {
 		return nil, errors.New("no .gopclntab section")
 	}
@@ -152,14 +146,14 @@ func (r *goSymbolResolver) Resolve(pc uint64) (*Symbol, error) {
 	}
 
 	var symtabData []byte
-	if symsec := r.ef.Section(".gosymtab"); symsec != nil {
+	if symsec := ef.Section(".gosymtab"); symsec != nil {
 		if data, err2 := symsec.Data(); err2 == nil {
 			symtabData = data
 		}
 	}
 
 	var textAddr uint64
-	if text := r.ef.Section(".text"); text != nil {
+	if text := ef.Section(".text"); text != nil {
 		textAddr = text.Addr
 	}
 	lt := gosym.NewLineTable(pclnData, textAddr)
@@ -170,7 +164,7 @@ func (r *goSymbolResolver) Resolve(pc uint64) (*Symbol, error) {
 		return nil, err
 	}
 
-	target := pc - r.slide
+	target := pc - slide
 	fn := tab.PCToFunc(target)
 	if fn == nil {
 		return nil, errors.New("pc not found in gopclntab")

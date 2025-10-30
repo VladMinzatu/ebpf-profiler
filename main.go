@@ -20,8 +20,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	symbolizer := &symbolizer.Symbolizer{}
-	p, err := profiler.NewProfiler(os.Getegid(), 1000, 1*time.Second, backend, symbolizer)
+	pid := os.Getpid()
+	symbolizer := symbolizer.NewSymbolizer(pid, &symbolizer.ElfSymbolResolver{})
+	p, err := profiler.NewProfiler(pid, 1000_000, 1*time.Second, backend, symbolizer, symbolizer)
 	if err != nil {
 		slog.Error("Failed to initialise profiler", "error", err)
 		os.Exit(1)
