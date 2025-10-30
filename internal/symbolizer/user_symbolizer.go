@@ -8,15 +8,15 @@ import (
 	"strings"
 )
 
-type Symbolizer struct {
+type UserSymbolizer struct {
 	pid int
 }
 
-func NewSymbolizer(pid int) *Symbolizer {
-	return &Symbolizer{pid: pid}
+func NewUserSymbolizer(pid int) *UserSymbolizer {
+	return &UserSymbolizer{pid: pid}
 }
 
-func (s *Symbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
+func (s *UserSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
 	regions, err := ReadProcMaps(s.pid)
 	if err != nil {
 		return nil, fmt.Errorf("symbolization failed due to failure to read proc maps: %v", err)
@@ -38,7 +38,7 @@ func (s *Symbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
 	return symbols, nil
 }
 
-func (s *Symbolizer) GetSymbol(pid int, pc uint64, m *MapRegion) (*Symbol, error) {
+func (s *UserSymbolizer) GetSymbol(pid int, pc uint64, m *MapRegion) (*Symbol, error) {
 	ef, err := openELFForMapping(pid, m)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open ELF for mapping: %v", err)
