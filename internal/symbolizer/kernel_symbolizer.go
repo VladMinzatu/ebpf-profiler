@@ -2,7 +2,6 @@ package symbolizer
 
 import (
 	"bufio"
-	"debug/elf"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
@@ -13,13 +12,14 @@ import (
 )
 
 type KernelSymbolizer struct {
-	vmlinuxPath string
-	kallsyms    *KallsymsResolver
-	vmlinux     *VmlinuxResolver
+	symbolDataCache *SymbolDataCache
+	vmlinuxPath     string
+	kallsyms        *KallsymsResolver
+	vmlinux         *VmlinuxResolver
 }
 
-func NewKernelSymbolizer(vmlinuxPath string) *KernelSymbolizer {
-	return &KernelSymbolizer{vmlinuxPath: vmlinuxPath}
+func NewKernelSymbolizer(symbolDataCache *SymbolDataCache, vmlinuxPath string) *KernelSymbolizer {
+	return &KernelSymbolizer{symbolDataCache: symbolDataCache, vmlinuxPath: vmlinuxPath}
 }
 
 func (s *KernelSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
@@ -27,7 +27,7 @@ func (s *KernelSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
 	var resolver func(pc uint64) (*Symbol, error)
 
 	if s.vmlinux == nil && s.vmlinuxPath != "" {
-		if vr, err := NewVmlinuxResolver(s.vmlinuxPath); err == nil {
+		if vr, err := NewVmlinuxResolver(s.symbolDataCache, s.vmlinuxPath); err == nil {
 			s.vmlinux = vr
 		}
 	}
@@ -45,7 +45,7 @@ func (s *KernelSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
 	}
 
 	if resolver == nil {
-		return nil, nil
+		return nil, fmt.Errorf("No resolver for kernel symbolization could be loaded")
 	}
 
 	symbols := make([]Symbol, 0, len(stack))
@@ -61,36 +61,23 @@ func (s *KernelSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
 }
 
 type VmlinuxResolver struct {
-	ef    *elf.File
-	slide uint64
+	symbolData *SymbolData
 }
 
-func NewVmlinuxResolver(path string) (*VmlinuxResolver, error) {
-	f, err := os.Open(path)
+func NewVmlinuxResolver(symbolDataCache *SymbolDataCache, path string) (*VmlinuxResolver, error) {
+	symbolData, err := symbolDataCache.Get(path)
 	if err != nil {
 		return nil, err
 	}
-	ef, err := elf.NewFile(f)
-	if err != nil {
-		f.Close()
-		return nil, err
-	}
-	// TODO: We keep the file open via ef to allow section reads; perhaps close through method in the future if needed
-	return &VmlinuxResolver{ef: ef, slide: 0}, nil
+	return &VmlinuxResolver{symbolData: symbolData}, nil
 }
 
 func (r *VmlinuxResolver) Resolve(pc uint64) (*Symbol, error) {
-	if r.ef == nil {
-		return nil, fmt.Errorf("vmlinux ELF not initialized")
+	sym, err := r.symbolData.ResolvePC(pc, 0)
+	if err != nil {
+		return nil, err
 	}
-	// Try DWARF first, though rare to have it for kernel build - fall back to elf
-	if sym, err := ResolvePCFromDWARF(r.ef, pc, r.slide); err == nil {
-		return sym, nil
-	}
-	if sym, err := ResolvePCFromELF(r.ef, pc, r.slide); err == nil {
-		return sym, nil
-	}
-	return nil, fmt.Errorf("kernel pc not found in vmlinux: 0x%x", pc)
+	return sym, nil
 }
 
 type kallsymsEntry struct {
@@ -126,6 +113,8 @@ func NewKallsymsResolver() (*KallsymsResolver, error) {
 		}
 		entries = append(entries, kallsymsEntry{addr: addr, name: name})
 	}
+	slog.Info("Loaded kallsyms for kernel symbolization", "entries", len(entries))
+
 	if err := s.Err(); err != nil {
 		return nil, fmt.Errorf("reading /proc/kallsyms: %v", err)
 	}

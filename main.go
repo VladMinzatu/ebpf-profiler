@@ -21,8 +21,9 @@ func main() {
 	}
 
 	pid := os.Getpid()
-	userSymbolizer := symbolizer.NewUserSymbolizer(pid)
-	kernelSymbolizer := symbolizer.NewKernelSymbolizer("/boot/vmlinuz-6.8.0-86-generic ")
+	symbolDataCache := symbolizer.NewSymbolDataCache()
+	userSymbolizer := symbolizer.NewUserSymbolizer(symbolDataCache, pid)
+	kernelSymbolizer := symbolizer.NewKernelSymbolizer(symbolDataCache, "/boot/vmlinuz-6.8.0-86-generic")
 	p, err := profiler.NewProfiler(pid, 1000_000, 1*time.Second, backend, userSymbolizer, kernelSymbolizer)
 	if err != nil {
 		slog.Error("Failed to initialise profiler", "error", err)
