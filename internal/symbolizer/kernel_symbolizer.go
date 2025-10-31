@@ -16,6 +16,9 @@ type KernelSymbolizer struct {
 	vmlinuxPath     string
 	kallsyms        *KallsymsResolver
 	vmlinux         *VmlinuxResolver
+
+	vmlinuxErr  error
+	kallsymsErr error
 }
 
 func NewKernelSymbolizer(symbolDataCache *SymbolDataCache, vmlinuxPath string) *KernelSymbolizer {
@@ -26,16 +29,24 @@ func (s *KernelSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
 	// Lazy init: prefer vmlinux if provided, else fall back to /proc/kallsyms
 	var resolver func(pc uint64) (*Symbol, error)
 
-	if s.vmlinux == nil && s.vmlinuxPath != "" {
-		if vr, err := NewVmlinuxResolver(s.symbolDataCache, s.vmlinuxPath); err == nil {
+	if s.vmlinux == nil && s.vmlinuxPath != "" && s.vmlinuxErr == nil {
+		vr, err := NewVmlinuxResolver(s.symbolDataCache, s.vmlinuxPath)
+		if err != nil {
+			slog.Error("Failed to load vmlinux", "path", s.vmlinuxPath, "error", err)
+			s.vmlinuxErr = err
+		} else {
 			s.vmlinux = vr
 		}
 	}
 	if s.vmlinux != nil {
 		resolver = s.vmlinux.Resolve
 	} else {
-		if s.kallsyms == nil {
-			if kr, err := NewKallsymsResolver(); err == nil {
+		if s.kallsyms == nil && s.kallsymsErr == nil {
+			kr, err := NewKallsymsResolver()
+			if err != nil {
+				slog.Error("Failed to load kallsyms", "error", err)
+				s.kallsymsErr = err
+			} else {
 				s.kallsyms = kr
 			}
 		}
@@ -45,7 +56,7 @@ func (s *KernelSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
 	}
 
 	if resolver == nil {
-		return nil, fmt.Errorf("No resolver for kernel symbolization could be loaded")
+		return nil, fmt.Errorf("no resolver for kernel symbolization could be loaded")
 	}
 
 	symbols := make([]Symbol, 0, len(stack))
@@ -90,6 +101,7 @@ type KallsymsResolver struct {
 }
 
 func NewKallsymsResolver() (*KallsymsResolver, error) {
+	slog.Info("Initializing kallsyms symbolizer - reading /proc/kallsyms")
 	f, err := os.Open("/proc/kallsyms")
 	if err != nil {
 		return nil, err
