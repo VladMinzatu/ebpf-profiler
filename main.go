@@ -43,7 +43,9 @@ func main() {
 	go func() {
 		samples := p.Samples()
 		for s := range samples {
-			fmt.Println(s)
+			for _, sample := range s {
+				fmt.Println(sample)
+			}
 		}
 	}()
 
