@@ -153,8 +153,8 @@ type SymbolDataCache struct {
 	pid   int
 }
 
-func NewSymbolDataCache() *SymbolDataCache {
-	return &SymbolDataCache{cache: make(map[string]*SymbolData)}
+func NewSymbolDataCache(pid int) *SymbolDataCache {
+	return &SymbolDataCache{pid: pid, cache: make(map[string]*SymbolData)}
 }
 
 func (c *SymbolDataCache) Get(path string) (*SymbolData, error) {

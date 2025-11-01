@@ -21,7 +21,7 @@ func main() {
 	}
 
 	pid := os.Getpid()
-	symbolDataCache := symbolizer.NewSymbolDataCache()
+	symbolDataCache := symbolizer.NewSymbolDataCache(pid)
 	userSymbolizer := symbolizer.NewUserSymbolizer(symbolDataCache, pid)
 	kernelSymbolizer := symbolizer.NewKernelSymbolizer(symbolDataCache, "/boot/vmlinuz-6.8.0-86-generic")
 	p, err := profiler.NewProfiler(pid, 1000_000, 1*time.Second, backend, userSymbolizer, kernelSymbolizer)
