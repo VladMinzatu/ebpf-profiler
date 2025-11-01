@@ -8,6 +8,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 type MapRegion struct {
@@ -21,17 +23,30 @@ type MapRegions struct {
 	regions []MapRegion
 }
 
+type cachedMaps struct {
+	regions  *MapRegions
+	cachedAt time.Time
+	ttl      time.Duration
+}
+
 type UserSymbolizer struct {
 	symbolDataCache *SymbolDataCache
 	pid             int
+	mapsCache       *cachedMaps
+	mapsMu          sync.RWMutex
+	mapsTTL         time.Duration
 }
 
 func NewUserSymbolizer(symbolDataCache *SymbolDataCache, pid int) *UserSymbolizer {
-	return &UserSymbolizer{symbolDataCache: symbolDataCache, pid: pid}
+	return &UserSymbolizer{
+		symbolDataCache: symbolDataCache,
+		pid:             pid,
+		mapsTTL:         5 * time.Second,
+	}
 }
 
 func (s *UserSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
-	regions, err := ReadProcMaps(s.pid)
+	regions, err := s.getMaps()
 	if err != nil {
 		return nil, fmt.Errorf("symbolization failed due to failure to read proc maps: %v", err)
 	}
@@ -39,8 +54,17 @@ func (s *UserSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
 	for _, pc := range stack {
 		r := regions.FindRegion(pc)
 		if r == nil {
-			slog.Warn("Did not find map region for PC", "pc", pc)
-			continue
+			slog.Debug("Did not find map region for PC, invalidating cache and retrying", "pc", pc)
+			s.invalidateMaps()
+			regions, err = s.getMaps()
+			if err != nil {
+				return nil, fmt.Errorf("symbolization failed due to failure to read proc maps: %v", err)
+			}
+			r = regions.FindRegion(pc)
+			if r == nil {
+				slog.Warn("Did not find map region for PC after cache refresh", "pc", pc)
+				continue
+			}
 		}
 		symbol, err := s.GetSymbol(s.pid, pc, r)
 		if err != nil {
@@ -49,6 +73,40 @@ func (s *UserSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
 		symbols = append(symbols, *symbol)
 	}
 	return symbols, nil
+}
+
+func (s *UserSymbolizer) getMaps() (*MapRegions, error) {
+	s.mapsMu.RLock()
+	if s.mapsCache != nil && time.Since(s.mapsCache.cachedAt) < s.mapsCache.ttl {
+		regions := s.mapsCache.regions
+		s.mapsMu.RUnlock()
+		return regions, nil
+	}
+	s.mapsMu.RUnlock()
+
+	s.mapsMu.Lock()
+	defer s.mapsMu.Unlock()
+
+	if s.mapsCache != nil && time.Since(s.mapsCache.cachedAt) < s.mapsCache.ttl {
+		return s.mapsCache.regions, nil
+	}
+
+	regions, err := ReadProcMaps(s.pid)
+	if err != nil {
+		return nil, err
+	}
+	s.mapsCache = &cachedMaps{
+		regions:  regions,
+		cachedAt: time.Now(),
+		ttl:      s.mapsTTL,
+	}
+	return regions, nil
+}
+
+func (s *UserSymbolizer) invalidateMaps() {
+	s.mapsMu.Lock()
+	defer s.mapsMu.Unlock()
+	s.mapsCache = nil
 }
 
 func (s *UserSymbolizer) GetSymbol(pid int, pc uint64, m *MapRegion) (*Symbol, error) {
@@ -71,7 +129,7 @@ func (s *UserSymbolizer) GetSymbol(pid int, pc uint64, m *MapRegion) (*Symbol, e
 }
 
 func ReadProcMaps(pid int) (*MapRegions, error) {
-	slog.Info("Reading proc maps for pid", "pid", pid)
+	slog.Debug("Reading proc maps for pid", "pid", pid)
 	f, err := os.Open(fmt.Sprintf("/proc/%d/maps", pid))
 	if err != nil {
 		return nil, err
