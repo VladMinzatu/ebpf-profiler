@@ -2,7 +2,6 @@ package symbolizer
 
 import (
 	"bufio"
-	"debug/elf"
 	"fmt"
 	"log/slog"
 	"os"
@@ -66,7 +65,12 @@ func (s *UserSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
 				continue
 			}
 		}
-		symbol, err := s.GetSymbol(s.pid, pc, r)
+
+		symbolData, err := s.symbolDataCache.Get(r.Path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve symbol for pc=%d: %v", pc, err)
+		}
+		symbol, err := symbolData.ResolvePC(pc, r.Offset)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve symbol for pc=%d: %v", pc, err)
 		}
@@ -107,25 +111,6 @@ func (s *UserSymbolizer) invalidateMaps() {
 	s.mapsMu.Lock()
 	defer s.mapsMu.Unlock()
 	s.mapsCache = nil
-}
-
-func (s *UserSymbolizer) GetSymbol(pid int, pc uint64, m *MapRegion) (*Symbol, error) {
-	ef, err := openELFForMapping(pid, m)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open ELF for mapping: %v", err)
-	}
-	defer ef.Close()
-
-	slide := computeSlide(ef, m)
-	symbolData, err := s.symbolDataCache.Get(m.Path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get symbol data for path %s: %v", m.Path, err)
-	}
-	sym, err := symbolData.ResolvePC(pc, slide)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve PC: %v", err)
-	}
-	return sym, nil
 }
 
 func ReadProcMaps(pid int) (*MapRegions, error) {
@@ -186,45 +171,4 @@ func parseMapEntry(line string) (MapRegion, error) {
 		return MapRegion{}, fmt.Errorf("failed to parse numeric addresses in line %s", line)
 	}
 	return MapRegion{Start: start, End: end, Offset: offv, Perms: perms, Path: path}, nil
-}
-
-func openELFForMapping(pid int, m *MapRegion) (*elf.File, error) {
-	path := m.Path
-	if path == "" || path == "[vdso]" || path == "[vsyscall]" || strings.HasPrefix(path, "[") {
-		exe := fmt.Sprintf("/proc/%d/exe", pid)
-		p, err := os.Readlink(exe)
-		if err == nil {
-			path = p
-		} else {
-			path = exe
-		}
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	ef, err := elf.NewFile(f)
-	if err != nil {
-		f.Close()
-		return nil, err
-	}
-	return ef, nil
-}
-
-func computeSlide(ef *elf.File, m *MapRegion) uint64 {
-	// computes the difference between mapping start and ELF entry point or segment vaddr
-	// Simple heuristic: look for PT_LOAD with lowest p_vaddr and compute slide = mapping.Start - p_vaddr
-	var minVaddr uint64 = 0
-	for _, prog := range ef.Progs {
-		if prog.Type == elf.PT_LOAD {
-			if minVaddr == 0 || prog.Vaddr < minVaddr {
-				minVaddr = prog.Vaddr
-			}
-		}
-	}
-	var slide uint64 = 0
-	if minVaddr != 0 {
-		slide = m.Start - minVaddr
-	}
-	return slide
 }

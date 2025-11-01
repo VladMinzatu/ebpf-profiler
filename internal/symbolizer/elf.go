@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"strings"
 	"sync"
 )
 
@@ -148,6 +150,7 @@ type SymbolDataCache struct {
 	// TODO: we lazy load and cache symbols without any LRU eviction - we should add it in the future
 	cache map[string]*SymbolData
 	mu    sync.RWMutex
+	pid   int
 }
 
 func NewSymbolDataCache() *SymbolDataCache {
@@ -170,19 +173,19 @@ func (c *SymbolDataCache) Get(path string) (*SymbolData, error) {
 
 func (c *SymbolDataCache) loadSymbolData(path string) (*SymbolData, error) {
 	data := &SymbolData{}
-	elfSymbols, err := readElfSymbols(path)
+	elfSymbols, err := readElfSymbols(c.pid, path)
 	if err != nil {
 		return nil, err
 	}
 	data.ElfSymbols = elfSymbols
 
-	dwarfData, err := readDwarfData(path)
+	dwarfData, err := readDwarfData(c.pid, path)
 	if err != nil {
 		slog.Info("Dwarf data not available", "path", path, "error", err)
 	}
 	data.DwarfData = dwarfData
 
-	goSymTab, err := readGoSymbolTable(path)
+	goSymTab, err := readGoSymbolTable(c.pid, path)
 	if err != nil {
 		slog.Info("Go symbol table not available", "path", path, "error", err)
 	}
@@ -191,9 +194,9 @@ func (c *SymbolDataCache) loadSymbolData(path string) (*SymbolData, error) {
 	return data, nil
 }
 
-func readElfSymbols(path string) ([]elf.Symbol, error) {
+func readElfSymbols(pid int, path string) ([]elf.Symbol, error) {
 	slog.Info("Loading ELF symbols", "path", path)
-	ef, err := elf.Open(path)
+	ef, err := openELF(pid, path)
 	if err != nil {
 		return nil, err
 	}
@@ -218,9 +221,9 @@ func readElfSymbols(path string) ([]elf.Symbol, error) {
 	return syms, nil
 }
 
-func readDwarfData(path string) (*dwarf.Data, error) {
+func readDwarfData(pid int, path string) (*dwarf.Data, error) {
 	slog.Info("Loading DWARF data", "path", path)
-	ef, err := elf.Open(path)
+	ef, err := openELF(pid, path)
 	if err != nil {
 		return nil, err
 	}
@@ -233,9 +236,9 @@ func readDwarfData(path string) (*dwarf.Data, error) {
 	return dwarfData, nil
 }
 
-func readGoSymbolTable(path string) (*gosym.Table, error) {
+func readGoSymbolTable(pid int, path string) (*gosym.Table, error) {
 	slog.Info("Loading Go line table", "path", path)
-	ef, err := elf.Open(path)
+	ef, err := openELF(pid, path)
 	if err != nil {
 		return nil, err
 	}
@@ -269,4 +272,21 @@ func readGoSymbolTable(path string) (*gosym.Table, error) {
 		return nil, err
 	}
 	return tab, nil
+}
+
+func openELF(pid int, path string) (*elf.File, error) {
+	if path == "" || path == "[vdso]" || path == "[vsyscall]" || strings.HasPrefix(path, "[") {
+		exe := fmt.Sprintf("/proc/%d/exe", pid)
+		p, err := os.Readlink(exe)
+		if err == nil {
+			path = p
+		} else {
+			path = exe
+		}
+	}
+	ef, err := elf.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	return ef, nil
 }
