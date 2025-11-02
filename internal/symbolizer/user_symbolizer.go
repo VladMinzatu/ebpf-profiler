@@ -7,44 +7,30 @@ import (
 	"time"
 )
 
-type ProcMapsProvider interface {
-	FindRegion(pc uint64) *MapRegion
-	Refresh() error
-}
-
-type SymbolDataProvider interface {
-	Get(path string) (*SymbolData, error)
-}
-
-type mapsCache struct {
-	maps     ProcMapsProvider
-	cachedAt time.Time
-	ttl      time.Duration
-}
-
 type UserSymbolizer struct {
 	pid int
 
 	symbolDataProvider SymbolDataProvider
-	mapsCache          *mapsCache
-	mapsMu             sync.RWMutex
-	mapsTTL            time.Duration
+	mapsProvider       ProcMapsProvider
+
+	mapsCachedAt time.Time
+	mapsCacheTtl time.Duration
+	mapsMu       sync.RWMutex
 }
 
-func NewUserSymbolizer(symbolDataCache *SymbolDataCache, pid int) *UserSymbolizer {
-	return NewUserSymbolizerWithReader(symbolDataCache, pid)
-}
-
-func NewUserSymbolizerWithReader(symbolDataProvider SymbolDataProvider, pid int) *UserSymbolizer {
+func NewUserSymbolizer(pid int, procMapsProvider ProcMapsProvider, symbolDataProvider SymbolDataProvider) *UserSymbolizer {
 	return &UserSymbolizer{
-		symbolDataProvider: symbolDataProvider,
 		pid:                pid,
-		mapsTTL:            5 * time.Second,
+		symbolDataProvider: symbolDataProvider,
+		mapsProvider:       procMapsProvider,
+
+		mapsCachedAt: time.Unix(0, 0),
+		mapsCacheTtl: 5 * time.Second,
 	}
 }
 
 func (s *UserSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
-	maps, err := s.getMaps()
+	maps, err := s.getMapsProvider()
 	if err != nil {
 		return nil, fmt.Errorf("symbolization failed due to failure to read proc maps: %v", err)
 	}
@@ -53,11 +39,11 @@ func (s *UserSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
 		r := maps.FindRegion(pc)
 		if r == nil {
 			slog.Debug("Did not find map region for PC, invalidating cache and retrying", "pc", pc)
-			s.invalidateMaps()
-			maps, err = s.getMaps()
+			err = s.refreshMapsProvider()
 			if err != nil {
 				return nil, fmt.Errorf("symbolization failed due to failure to read proc maps: %v", err)
 			}
+			maps = s.mapsProvider
 			r = maps.FindRegion(pc)
 			if r == nil {
 				slog.Warn("Did not find map region for PC after cache refresh", "pc", pc)
@@ -78,36 +64,30 @@ func (s *UserSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
 	return symbols, nil
 }
 
-func (s *UserSymbolizer) getMaps() (ProcMapsProvider, error) {
+func (s *UserSymbolizer) getMapsProvider() (ProcMapsProvider, error) {
 	s.mapsMu.RLock()
-	if s.mapsCache != nil && time.Since(s.mapsCache.cachedAt) < s.mapsCache.ttl {
-		maps := s.mapsCache.maps
+	if time.Since(s.mapsCachedAt) < s.mapsCacheTtl {
+		mapsProvider := s.mapsProvider
 		s.mapsMu.RUnlock()
-		return maps, nil
+		return mapsProvider, nil
 	}
 	s.mapsMu.RUnlock()
 
-	s.mapsMu.Lock()
-	defer s.mapsMu.Unlock()
-
-	if s.mapsCache != nil && time.Since(s.mapsCache.cachedAt) < s.mapsCache.ttl {
-		return s.mapsCache.maps, nil
-	}
-	err := s.mapsCache.maps.Refresh()
+	err := s.refreshMapsProvider()
 	if err != nil {
-		return nil, fmt.Errorf("failed to refresh maps: %v", err)
+		return nil, err
 	}
-
-	s.mapsCache = &mapsCache{
-		maps:     s.mapsCache.maps,
-		cachedAt: time.Now(),
-		ttl:      s.mapsTTL,
-	}
-	return s.mapsCache.maps, nil
+	return s.mapsProvider, nil
 }
 
-func (s *UserSymbolizer) invalidateMaps() {
+func (s *UserSymbolizer) refreshMapsProvider() error {
 	s.mapsMu.Lock()
 	defer s.mapsMu.Unlock()
-	s.mapsCache = nil
+	err := s.mapsProvider.Refresh()
+	if err != nil {
+		return fmt.Errorf("failed to refresh maps: %v", err)
+	}
+
+	s.mapsCachedAt = time.Now()
+	return nil
 }

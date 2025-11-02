@@ -8,9 +8,9 @@ import (
 )
 
 type mockProcMapsProvider struct {
-	regions     []MapRegion
-	findErr     error
-	refreshErr  error
+	regions      []MapRegion
+	findErr      error
+	refreshErr   error
 	refreshCalls int
 }
 
@@ -93,13 +93,13 @@ func (t *testSymbolDataWrapper) ResolvePC(pc uint64, slide uint64) (*Symbol, err
 
 func TestUserSymbolizer_Symbolize(t *testing.T) {
 	tests := []struct {
-		name          string
-		stack         []uint64
-		mapsProvider  *mockProcMapsProvider
+		name           string
+		stack          []uint64
+		mapsProvider   *mockProcMapsProvider
 		symbolProvider *mockSymbolDataProvider
-		wantSymbols   int
-		wantErr       bool
-		errContains   string
+		wantSymbols    int
+		wantErr        bool
+		errContains    string
 	}{
 		{
 			name:  "successful symbolization",
@@ -125,7 +125,7 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 				},
 			},
 			wantSymbols: 2,
-			wantErr:      false,
+			wantErr:     false,
 		},
 		{
 			name:  "region not found - cache invalidation and retry",
@@ -145,7 +145,7 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 				},
 			},
 			wantSymbols: 1, // Only first PC gets symbolized
-			wantErr:      false,
+			wantErr:     false,
 		},
 		{
 			name:  "symbol data provider error",
@@ -169,9 +169,9 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 					{Start: 0x55d4b2000000, End: 0x55d4b2021000, Offset: 0x0, Path: "/usr/bin/myprog"},
 				},
 			},
-		symbolProvider: &mockSymbolDataProvider{
-			data: map[string]*mockSymbolData{},
-		},
+			symbolProvider: &mockSymbolDataProvider{
+				data: map[string]*mockSymbolData{},
+			},
 			wantErr:     true,
 			errContains: "failed to resolve symbol",
 		},
@@ -185,7 +185,7 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 				data: map[string]*mockSymbolData{},
 			},
 			wantSymbols: 0,
-			wantErr:      false,
+			wantErr:     false,
 		},
 	}
 
@@ -290,11 +290,11 @@ func TestUserSymbolizer_getMaps(t *testing.T) {
 			errContains: "failed to refresh maps",
 		},
 		{
-			name:          "no cache - nil mapsCache",
-			cacheState:    nil,
-			mapsProvider:  &mockProcMapsProvider{},
-			wantErr:       true,
-			errContains:   "nil",
+			name:         "no cache - nil mapsCache",
+			cacheState:   nil,
+			mapsProvider: &mockProcMapsProvider{},
+			wantErr:      true,
+			errContains:  "nil",
 		},
 	}
 
@@ -310,26 +310,26 @@ func TestUserSymbolizer_getMaps(t *testing.T) {
 			if tt.checkRefresh && tt.cacheState != nil {
 				mockProvider := tt.cacheState.maps.(*mockProcMapsProvider)
 				initialCalls := mockProvider.refreshCalls
-				
+
 				maps, err := s.getMaps()
-				
+
 				if (err != nil) != tt.wantErr {
 					t.Errorf("getMaps() error = %v, wantErr %v", err, tt.wantErr)
 					return
 				}
-				
+
 				if tt.wantErr {
 					if tt.errContains != "" && err != nil && !contains(err.Error(), tt.errContains) {
 						t.Errorf("error message %q does not contain %q", err.Error(), tt.errContains)
 					}
 					return
 				}
-				
+
 				if maps == nil {
 					t.Error("getMaps() returned nil maps")
 					return
 				}
-				
+
 				if tt.checkRefresh {
 					if tt.expectRefresh && mockProvider.refreshCalls <= initialCalls {
 						t.Errorf("expected refresh to be called, initial calls: %d, current calls: %d", initialCalls, mockProvider.refreshCalls)
@@ -359,7 +359,7 @@ func TestUserSymbolizer_getMaps_CacheExpiration(t *testing.T) {
 	}
 
 	s := &UserSymbolizer{
-		pid:                1234,
+		pid: 1234,
 		mapsCache: &mapsCache{
 			maps:     mockMaps,
 			cachedAt: time.Now().Add(-10 * time.Second), // Expired
@@ -511,26 +511,26 @@ func TestNewUserSymbolizerWithReader(t *testing.T) {
 	provider := &mockSymbolDataProvider{
 		data: map[string]*mockSymbolData{},
 	}
-	s := NewUserSymbolizerWithReader(provider, 1234)
+	s := NewUserSymbolizer(provider, 1234)
 
 	if s == nil {
-		t.Fatal("NewUserSymbolizerWithReader() returned nil")
+		t.Fatal("NewUserSymbolizer() returned nil")
 	}
 	if s.pid != 1234 {
-		t.Errorf("NewUserSymbolizerWithReader() pid = %d, want 1234", s.pid)
+		t.Errorf("NewUserSymbolizer() pid = %d, want 1234", s.pid)
 	}
 	if s.symbolDataProvider != provider {
-		t.Error("NewUserSymbolizerWithReader() did not set symbolDataProvider correctly")
+		t.Error("NewUserSymbolizer() did not set symbolDataProvider correctly")
 	}
 }
 
 // Helper function
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || 
-		(len(s) > len(substr) && 
-			(s[:len(substr)] == substr || 
-			 s[len(s)-len(substr):] == substr || 
-			 findSubstring(s, substr))))
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > len(substr) &&
+			(s[:len(substr)] == substr ||
+				s[len(s)-len(substr):] == substr ||
+				findSubstring(s, substr))))
 }
 
 func findSubstring(s, substr string) bool {
@@ -541,4 +541,3 @@ func findSubstring(s, substr string) bool {
 	}
 	return false
 }
-

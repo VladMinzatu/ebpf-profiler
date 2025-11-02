@@ -12,13 +12,6 @@ import (
 	"sync"
 )
 
-type SymbolData struct {
-	ElfSymbols []elf.Symbol
-	DwarfData  *dwarf.Data
-	GoSymTab   *gosym.Table
-	TextAddr   uint64
-}
-
 func (d *SymbolData) ResolvePC(pc uint64, slide uint64) (*Symbol, error) {
 	if d.GoSymTab != nil {
 		return d.resolvePCFromGoSymbolTable(pc, slide)
