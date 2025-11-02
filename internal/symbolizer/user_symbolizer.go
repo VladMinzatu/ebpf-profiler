@@ -12,6 +12,10 @@ type ProcMapsProvider interface {
 	Refresh() error
 }
 
+type SymbolDataProvider interface {
+	Get(path string) (*SymbolData, error)
+}
+
 type mapsCache struct {
 	maps     ProcMapsProvider
 	cachedAt time.Time
@@ -21,21 +25,21 @@ type mapsCache struct {
 type UserSymbolizer struct {
 	pid int
 
-	symbolDataCache *SymbolDataCache
-	mapsCache       *mapsCache
-	mapsMu          sync.RWMutex
-	mapsTTL         time.Duration
+	symbolDataProvider SymbolDataProvider
+	mapsCache          *mapsCache
+	mapsMu             sync.RWMutex
+	mapsTTL            time.Duration
 }
 
 func NewUserSymbolizer(symbolDataCache *SymbolDataCache, pid int) *UserSymbolizer {
 	return NewUserSymbolizerWithReader(symbolDataCache, pid)
 }
 
-func NewUserSymbolizerWithReader(symbolDataCache *SymbolDataCache, pid int) *UserSymbolizer {
+func NewUserSymbolizerWithReader(symbolDataProvider SymbolDataProvider, pid int) *UserSymbolizer {
 	return &UserSymbolizer{
-		symbolDataCache: symbolDataCache,
-		pid:             pid,
-		mapsTTL:         5 * time.Second,
+		symbolDataProvider: symbolDataProvider,
+		pid:                pid,
+		mapsTTL:            5 * time.Second,
 	}
 }
 
@@ -61,7 +65,7 @@ func (s *UserSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
 			}
 		}
 
-		symbolData, err := s.symbolDataCache.Get(r.Path)
+		symbolData, err := s.symbolDataProvider.Get(r.Path)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve symbol for pc=%d: %v", pc, err)
 		}
