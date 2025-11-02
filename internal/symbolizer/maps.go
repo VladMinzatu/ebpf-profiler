@@ -23,7 +23,7 @@ type ProcMapsReader struct {
 }
 
 func NewProcMapsReader(pid int) *ProcMapsReader {
-	return &ProcMapsReader{&DataLoader{Path: fmt.Sprintf("/proc/%d/map", pid)}}
+	return &ProcMapsReader{&DataLoader{Path: fmt.Sprintf("/proc/%d/maps", pid)}}
 }
 
 func (p *ProcMapsReader) ReadLines() ([]string, error) {
