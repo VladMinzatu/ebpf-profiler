@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+type ProcMapsProvider interface {
+	FindRegion(pc uint64) *MapRegion
+	Refresh() error
+}
+
 type UserSymbolizer struct {
 	pid int
 

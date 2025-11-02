@@ -7,6 +7,13 @@ import (
 	"strings"
 )
 
+type MapRegion struct {
+	Start, End uint64
+	Offset     uint64
+	Perms      string
+	Path       string
+}
+
 type MapsReader interface {
 	ReadLines() ([]string, error)
 }
