@@ -4,7 +4,6 @@ import (
 	"errors"
 	"testing"
 	"time"
-	"unsafe"
 )
 
 type mockProcMapsProvider struct {
@@ -44,12 +43,12 @@ func (m *mockProcMapsProviderWithCustomFind) FindRegion(pc uint64) *MapRegion {
 	return m.mockProcMapsProvider.FindRegion(pc)
 }
 
-type mockSymbolData struct {
+type mockSymbolDataResolver struct {
 	symbols map[uint64]*Symbol
 	err     error
 }
 
-func (m *mockSymbolData) ResolvePC(pc uint64, slide uint64) (*Symbol, error) {
+func (m *mockSymbolDataResolver) ResolvePC(pc uint64, slide uint64) (*Symbol, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -67,28 +66,18 @@ func (m *mockSymbolData) ResolvePC(pc uint64, slide uint64) (*Symbol, error) {
 }
 
 type mockSymbolDataProvider struct {
-	data map[string]*mockSymbolData
+	data map[string]*mockSymbolDataResolver
 	err  error
 }
 
-func (m *mockSymbolDataProvider) Get(path string) (*SymbolData, error) {
+func (m *mockSymbolDataProvider) Get(path string) (SymbolDataResolver, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
-	if mockData, ok := m.data[path]; ok {
-		wrapper := &testSymbolDataWrapper{mock: mockData}
-		return (*SymbolData)(unsafe.Pointer(wrapper)), nil
+	if resolver, ok := m.data[path]; ok {
+		return resolver, nil
 	}
 	return nil, errors.New("symbol data not found")
-}
-
-type testSymbolDataWrapper struct {
-	SymbolData
-	mock *mockSymbolData
-}
-
-func (t *testSymbolDataWrapper) ResolvePC(pc uint64, slide uint64) (*Symbol, error) {
-	return t.mock.ResolvePC(pc, slide)
 }
 
 func TestUserSymbolizer_Symbolize(t *testing.T) {
@@ -111,7 +100,7 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 				},
 			},
 			symbolProvider: &mockSymbolDataProvider{
-				data: map[string]*mockSymbolData{
+				data: map[string]*mockSymbolDataResolver{
 					"/usr/bin/myprog": {
 						symbols: map[uint64]*Symbol{
 							0x100: {Name: "main", PC: 0},
@@ -128,7 +117,7 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 			wantErr:     false,
 		},
 		{
-			name:  "region not found - cache invalidation and retry",
+			name:  "region not found - cache refresh and retry",
 			stack: []uint64{0x55d4b2000100, 0xdeadbeef0000},
 			mapsProvider: &mockProcMapsProvider{
 				regions: []MapRegion{
@@ -136,7 +125,7 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 				},
 			},
 			symbolProvider: &mockSymbolDataProvider{
-				data: map[string]*mockSymbolData{
+				data: map[string]*mockSymbolDataResolver{
 					"/usr/bin/myprog": {
 						symbols: map[uint64]*Symbol{
 							0x100: {Name: "main", PC: 0},
@@ -144,7 +133,7 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 					},
 				},
 			},
-			wantSymbols: 1, // Only first PC gets symbolized
+			wantSymbols: 1,
 			wantErr:     false,
 		},
 		{
@@ -170,7 +159,7 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 				},
 			},
 			symbolProvider: &mockSymbolDataProvider{
-				data: map[string]*mockSymbolData{},
+				data: map[string]*mockSymbolDataResolver{},
 			},
 			wantErr:     true,
 			errContains: "failed to resolve symbol",
@@ -182,7 +171,7 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 				regions: []MapRegion{},
 			},
 			symbolProvider: &mockSymbolDataProvider{
-				data: map[string]*mockSymbolData{},
+				data: map[string]*mockSymbolDataResolver{},
 			},
 			wantSymbols: 0,
 			wantErr:     false,
@@ -191,16 +180,7 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &UserSymbolizer{
-				pid:                1234,
-				symbolDataProvider: tt.symbolProvider,
-				mapsCache: &mapsCache{
-					maps:     tt.mapsProvider,
-					cachedAt: time.Now(),
-					ttl:      5 * time.Second,
-				},
-				mapsTTL: 5 * time.Second,
-			}
+			s := NewUserSymbolizer(1234, tt.mapsProvider, tt.symbolProvider)
 
 			symbols, err := s.Symbolize(tt.stack)
 			if (err != nil) != tt.wantErr {
@@ -224,11 +204,11 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 	}
 }
 
-func TestUserSymbolizer_getMaps(t *testing.T) {
+func TestUserSymbolizer_getMapsProvider(t *testing.T) {
 	tests := []struct {
 		name          string
-		cacheState    *mapsCache
 		mapsProvider  *mockProcMapsProvider
+		cachedAt      time.Time
 		wantErr       bool
 		errContains   string
 		checkRefresh  bool
@@ -236,65 +216,38 @@ func TestUserSymbolizer_getMaps(t *testing.T) {
 	}{
 		{
 			name: "cache hit - within TTL",
-			cacheState: &mapsCache{
-				maps: &mockProcMapsProvider{
-					regions: []MapRegion{
-						{Start: 0x1000, End: 0x2000, Path: "/bin/test"},
-					},
-				},
-				cachedAt: time.Now().Add(-1 * time.Second),
-				ttl:      5 * time.Second,
-			},
 			mapsProvider: &mockProcMapsProvider{
 				regions: []MapRegion{
 					{Start: 0x1000, End: 0x2000, Path: "/bin/test"},
 				},
 			},
+			cachedAt:      time.Now().Add(-1 * time.Second),
 			wantErr:       false,
 			checkRefresh:  true,
 			expectRefresh: false,
 		},
 		{
 			name: "cache miss - expired TTL",
-			cacheState: &mapsCache{
-				maps: &mockProcMapsProvider{
-					regions: []MapRegion{
-						{Start: 0x1000, End: 0x2000, Path: "/bin/test"},
-					},
-				},
-				cachedAt: time.Now().Add(-10 * time.Second),
-				ttl:      5 * time.Second,
-			},
 			mapsProvider: &mockProcMapsProvider{
 				regions: []MapRegion{
 					{Start: 0x1000, End: 0x2000, Path: "/bin/test"},
 				},
 			},
+			cachedAt:      time.Now().Add(-10 * time.Second),
 			wantErr:       false,
 			checkRefresh:  true,
 			expectRefresh: true,
 		},
 		{
 			name: "refresh error",
-			cacheState: &mapsCache{
-				maps: &mockProcMapsProvider{
-					refreshErr: errors.New("refresh failed"),
-				},
-				cachedAt: time.Now().Add(-10 * time.Second),
-				ttl:      5 * time.Second,
-			},
 			mapsProvider: &mockProcMapsProvider{
 				refreshErr: errors.New("refresh failed"),
 			},
-			wantErr:     true,
-			errContains: "failed to refresh maps",
-		},
-		{
-			name:         "no cache - nil mapsCache",
-			cacheState:   nil,
-			mapsProvider: &mockProcMapsProvider{},
-			wantErr:      true,
-			errContains:  "nil",
+			cachedAt:      time.Now().Add(-10 * time.Second),
+			wantErr:       true,
+			errContains:   "failed to refresh maps",
+			checkRefresh:  false,
+			expectRefresh: false,
 		},
 	}
 
@@ -302,56 +255,46 @@ func TestUserSymbolizer_getMaps(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &UserSymbolizer{
 				pid:                1234,
-				mapsCache:          tt.cacheState,
-				mapsTTL:            5 * time.Second,
-				symbolDataProvider: &mockSymbolDataProvider{data: map[string]*mockSymbolData{}},
+				mapsProvider:       tt.mapsProvider,
+				mapsCachedAt:       tt.cachedAt,
+				mapsCacheTtl:       5 * time.Second,
+				symbolDataProvider: &mockSymbolDataProvider{data: map[string]*mockSymbolDataResolver{}},
 			}
 
-			if tt.checkRefresh && tt.cacheState != nil {
-				mockProvider := tt.cacheState.maps.(*mockProcMapsProvider)
-				initialCalls := mockProvider.refreshCalls
+			initialCalls := tt.mapsProvider.refreshCalls
 
-				maps, err := s.getMaps()
+			maps, err := s.getMapsProvider()
 
-				if (err != nil) != tt.wantErr {
-					t.Errorf("getMaps() error = %v, wantErr %v", err, tt.wantErr)
-					return
-				}
+			if (err != nil) != tt.wantErr {
+				t.Errorf("getMapsProvider() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
 
-				if tt.wantErr {
-					if tt.errContains != "" && err != nil && !contains(err.Error(), tt.errContains) {
-						t.Errorf("error message %q does not contain %q", err.Error(), tt.errContains)
-					}
-					return
-				}
-
-				if maps == nil {
-					t.Error("getMaps() returned nil maps")
-					return
-				}
-
-				if tt.checkRefresh {
-					if tt.expectRefresh && mockProvider.refreshCalls <= initialCalls {
-						t.Errorf("expected refresh to be called, initial calls: %d, current calls: %d", initialCalls, mockProvider.refreshCalls)
-					}
-					if !tt.expectRefresh && mockProvider.refreshCalls > initialCalls {
-						t.Errorf("expected no refresh, but refresh was called")
-					}
-				}
-			} else {
-				_, err := s.getMaps()
-				if (err != nil) != tt.wantErr {
-					t.Errorf("getMaps() error = %v, wantErr %v", err, tt.wantErr)
-				}
-				if tt.wantErr && tt.errContains != "" && err != nil && !contains(err.Error(), tt.errContains) {
+			if tt.wantErr {
+				if tt.errContains != "" && err != nil && !contains(err.Error(), tt.errContains) {
 					t.Errorf("error message %q does not contain %q", err.Error(), tt.errContains)
+				}
+				return
+			}
+
+			if maps == nil {
+				t.Error("getMapsProvider() returned nil maps")
+				return
+			}
+
+			if tt.checkRefresh {
+				if tt.expectRefresh && tt.mapsProvider.refreshCalls <= initialCalls {
+					t.Errorf("expected refresh to be called, initial calls: %d, current calls: %d", initialCalls, tt.mapsProvider.refreshCalls)
+				}
+				if !tt.expectRefresh && tt.mapsProvider.refreshCalls > initialCalls {
+					t.Errorf("expected no refresh, but refresh was called")
 				}
 			}
 		})
 	}
 }
 
-func TestUserSymbolizer_getMaps_CacheExpiration(t *testing.T) {
+func TestUserSymbolizer_getMapsProvider_CacheExpiration(t *testing.T) {
 	mockMaps := &mockProcMapsProvider{
 		regions: []MapRegion{
 			{Start: 0x1000, End: 0x2000, Path: "/bin/test"},
@@ -359,23 +302,20 @@ func TestUserSymbolizer_getMaps_CacheExpiration(t *testing.T) {
 	}
 
 	s := &UserSymbolizer{
-		pid: 1234,
-		mapsCache: &mapsCache{
-			maps:     mockMaps,
-			cachedAt: time.Now().Add(-10 * time.Second), // Expired
-			ttl:      5 * time.Second,
-		},
-		mapsTTL:            5 * time.Second,
-		symbolDataProvider: &mockSymbolDataProvider{data: map[string]*mockSymbolData{}},
+		pid:                1234,
+		mapsProvider:       mockMaps,
+		mapsCachedAt:       time.Now().Add(-10 * time.Second), // Expired
+		mapsCacheTtl:       5 * time.Second,
+		symbolDataProvider: &mockSymbolDataProvider{data: map[string]*mockSymbolDataResolver{}},
 	}
 
 	// First call should refresh
-	maps, err := s.getMaps()
+	maps, err := s.getMapsProvider()
 	if err != nil {
-		t.Fatalf("getMaps() error = %v", err)
+		t.Fatalf("getMapsProvider() error = %v", err)
 	}
 	if maps == nil {
-		t.Fatal("getMaps() returned nil maps")
+		t.Fatal("getMapsProvider() returned nil maps")
 	}
 
 	// Verify refresh was called
@@ -388,16 +328,16 @@ func TestUserSymbolizer_getMaps_CacheExpiration(t *testing.T) {
 
 	// Update cache time to be fresh
 	s.mapsMu.Lock()
-	s.mapsCache.cachedAt = time.Now()
+	s.mapsCachedAt = time.Now()
 	s.mapsMu.Unlock()
 
 	// Second call should use cache (no refresh)
-	maps2, err := s.getMaps()
+	maps2, err := s.getMapsProvider()
 	if err != nil {
-		t.Fatalf("getMaps() error = %v", err)
+		t.Fatalf("getMapsProvider() error = %v", err)
 	}
 	if maps2 == nil {
-		t.Fatal("getMaps() returned nil maps")
+		t.Fatal("getMapsProvider() returned nil maps")
 	}
 
 	// Verify refresh was NOT called
@@ -406,7 +346,7 @@ func TestUserSymbolizer_getMaps_CacheExpiration(t *testing.T) {
 	}
 }
 
-func TestUserSymbolizer_invalidateMaps(t *testing.T) {
+func TestUserSymbolizer_refreshMapsProvider(t *testing.T) {
 	mockMaps := &mockProcMapsProvider{
 		regions: []MapRegion{
 			{Start: 0x1000, End: 0x2000, Path: "/bin/test"},
@@ -414,32 +354,47 @@ func TestUserSymbolizer_invalidateMaps(t *testing.T) {
 	}
 
 	s := &UserSymbolizer{
-		pid: 1234,
-		mapsCache: &mapsCache{
-			maps:     mockMaps,
-			cachedAt: time.Now(),
-			ttl:      5 * time.Second,
-		},
-		mapsTTL:            5 * time.Second,
-		symbolDataProvider: &mockSymbolDataProvider{data: map[string]*mockSymbolData{}},
+		pid:                1234,
+		mapsProvider:       mockMaps,
+		mapsCachedAt:       time.Unix(0, 0),
+		mapsCacheTtl:       5 * time.Second,
+		symbolDataProvider: &mockSymbolDataProvider{data: map[string]*mockSymbolDataResolver{}},
 	}
 
-	// Verify cache exists
-	if s.mapsCache == nil {
-		t.Fatal("expected mapsCache to be initialized")
+	// Verify initial cache time
+	if !s.mapsCachedAt.Equal(time.Unix(0, 0)) {
+		t.Errorf("expected initial cachedAt to be Unix epoch, got %v", s.mapsCachedAt)
 	}
 
-	// Invalidate
-	s.invalidateMaps()
+	// Refresh
+	err := s.refreshMapsProvider()
+	if err != nil {
+		t.Fatalf("refreshMapsProvider() error = %v", err)
+	}
 
-	// Verify cache is cleared
-	if s.mapsCache != nil {
-		t.Error("expected mapsCache to be nil after invalidation")
+	// Verify refresh was called
+	if mockMaps.refreshCalls == 0 {
+		t.Error("expected refresh to be called")
+	}
+
+	// Verify cache time was updated (should be recent, within last second)
+	if time.Since(s.mapsCachedAt) > time.Second {
+		t.Error("expected mapsCachedAt to be updated to recent time")
+	}
+
+	// Test refresh error
+	mockMaps.refreshErr = errors.New("refresh failed")
+	err = s.refreshMapsProvider()
+	if err == nil {
+		t.Error("expected error from refreshMapsProvider()")
+	}
+	if err != nil && !contains(err.Error(), "failed to refresh maps") {
+		t.Errorf("error message %q does not contain 'failed to refresh maps'", err.Error())
 	}
 }
 
-func TestUserSymbolizer_Symbolize_WithCacheInvalidation(t *testing.T) {
-	// First call returns nil for region, second call succeeds
+func TestUserSymbolizer_Symbolize_WithCacheRefresh(t *testing.T) {
+	// First call returns nil for region, refresh happens, then second call succeeds
 	calls := 0
 	mockMaps := &mockProcMapsProviderWithCustomFind{
 		mockProcMapsProvider: mockProcMapsProvider{
@@ -458,26 +413,19 @@ func TestUserSymbolizer_Symbolize_WithCacheInvalidation(t *testing.T) {
 		return &mockMaps.regions[0]
 	}
 
-	s := &UserSymbolizer{
-		pid: 1234,
-		mapsCache: &mapsCache{
-			maps:     mockMaps,
-			cachedAt: time.Now(),
-			ttl:      5 * time.Second,
-		},
-		mapsTTL: 5 * time.Second,
-		symbolDataProvider: &mockSymbolDataProvider{
-			data: map[string]*mockSymbolData{
-				"/usr/bin/myprog": {
-					symbols: map[uint64]*Symbol{
-						0x100: {Name: "main", PC: 0},
-					},
+	symbolProvider := &mockSymbolDataProvider{
+		data: map[string]*mockSymbolDataResolver{
+			"/usr/bin/myprog": {
+				symbols: map[uint64]*Symbol{
+					0x100: {Name: "main", PC: 0},
 				},
 			},
 		},
 	}
 
-	// This should trigger cache invalidation and retry
+	s := NewUserSymbolizer(1234, mockMaps, symbolProvider)
+
+	// This should trigger cache refresh and retry
 	symbols, err := s.Symbolize([]uint64{0x55d4b2000100})
 	if err != nil {
 		t.Fatalf("Symbolize() error = %v", err)
@@ -488,13 +436,22 @@ func TestUserSymbolizer_Symbolize_WithCacheInvalidation(t *testing.T) {
 		t.Error("expected at least one symbol after cache refresh")
 	}
 
-	// Verify cache was invalidated (mapsCache should be nil initially after invalidation)
-	// Then recreated in getMaps
+	// Verify refresh was called
+	if mockMaps.refreshCalls == 0 {
+		t.Error("expected refresh to be called when region not found")
+	}
 }
 
 func TestNewUserSymbolizer(t *testing.T) {
-	cache := NewSymbolDataCache(1234)
-	s := NewUserSymbolizer(cache, 1234)
+	mapsProvider := &mockProcMapsProvider{
+		regions: []MapRegion{
+			{Start: 0x1000, End: 0x2000, Path: "/bin/test"},
+		},
+	}
+	symbolProvider := &mockSymbolDataProvider{
+		data: map[string]*mockSymbolDataResolver{},
+	}
+	s := NewUserSymbolizer(1234, mapsProvider, symbolProvider)
 
 	if s == nil {
 		t.Fatal("NewUserSymbolizer() returned nil")
@@ -502,25 +459,17 @@ func TestNewUserSymbolizer(t *testing.T) {
 	if s.pid != 1234 {
 		t.Errorf("NewUserSymbolizer() pid = %d, want 1234", s.pid)
 	}
-	if s.mapsTTL != 5*time.Second {
-		t.Errorf("NewUserSymbolizer() mapsTTL = %v, want 5s", s.mapsTTL)
+	if s.mapsCacheTtl != 5*time.Second {
+		t.Errorf("NewUserSymbolizer() mapsCacheTtl = %v, want 5s", s.mapsCacheTtl)
 	}
-}
-
-func TestNewUserSymbolizerWithReader(t *testing.T) {
-	provider := &mockSymbolDataProvider{
-		data: map[string]*mockSymbolData{},
+	if s.mapsProvider != mapsProvider {
+		t.Error("NewUserSymbolizer() did not set mapsProvider correctly")
 	}
-	s := NewUserSymbolizer(provider, 1234)
-
-	if s == nil {
-		t.Fatal("NewUserSymbolizer() returned nil")
-	}
-	if s.pid != 1234 {
-		t.Errorf("NewUserSymbolizer() pid = %d, want 1234", s.pid)
-	}
-	if s.symbolDataProvider != provider {
+	if s.symbolDataProvider != symbolProvider {
 		t.Error("NewUserSymbolizer() did not set symbolDataProvider correctly")
+	}
+	if !s.mapsCachedAt.Equal(time.Unix(0, 0)) {
+		t.Errorf("NewUserSymbolizer() mapsCachedAt = %v, want Unix(0,0)", s.mapsCachedAt)
 	}
 }
 

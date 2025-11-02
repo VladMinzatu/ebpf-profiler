@@ -1,21 +1,8 @@
 package symbolizer
 
-import (
-	"debug/dwarf"
-	"debug/elf"
-	"debug/gosym"
-)
-
 type Symbol struct {
 	Name string
 	PC   uint64
-}
-
-type SymbolData struct {
-	ElfSymbols []elf.Symbol
-	DwarfData  *dwarf.Data
-	GoSymTab   *gosym.Table
-	TextAddr   uint64
 }
 
 type ProcMapsProvider interface {
@@ -23,6 +10,10 @@ type ProcMapsProvider interface {
 	Refresh() error
 }
 
+type SymbolDataResolver interface {
+	ResolvePC(pc uint64, slide uint64) (*Symbol, error)
+}
+
 type SymbolDataProvider interface {
-	Get(path string) (*SymbolData, error)
+	Get(path string) (SymbolDataResolver, error)
 }
