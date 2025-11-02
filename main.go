@@ -21,7 +21,7 @@ func main() {
 	}
 
 	pid := os.Getpid()
-	procMapsProvider, _ := symbolizer.NewProcMaps(pid, symbolizer.NewProcMapsReader())
+	procMapsProvider, _ := symbolizer.NewProcMaps(symbolizer.NewProcMapsReader(pid))
 	symbolDataProvider := symbolizer.NewSymbolDataCache(pid)
 	userSymbolizer := symbolizer.NewUserSymbolizer(pid, procMapsProvider, symbolDataProvider)
 	kernelSymbolizer := symbolizer.NewKernelSymbolizer(symbolizer.NewSymbolDataCache(pid), "/boot/vmlinuz-6.8.0-86-generic")

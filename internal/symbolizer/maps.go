@@ -8,17 +8,28 @@ import (
 )
 
 type MapsReader interface {
-	ReadMaps(pid int) ([]string, error)
+	ReadLines() ([]string, error)
+}
+
+type ProcMapsReader struct {
+	loader *DataLoader
+}
+
+func NewProcMapsReader(pid int) *ProcMapsReader {
+	return &ProcMapsReader{&DataLoader{Path: fmt.Sprintf("/proc/%d/map", pid)}}
+}
+
+func (p *ProcMapsReader) ReadLines() ([]string, error) {
+	return p.loader.ReadLines()
 }
 
 type procMaps struct {
-	pid       int
 	mapReader MapsReader
 	regions   []MapRegion
 }
 
-func NewProcMaps(pid int, mapReader MapsReader) (*procMaps, error) {
-	p := &procMaps{pid: pid, mapReader: mapReader}
+func NewProcMaps(mapReader MapsReader) (*procMaps, error) {
+	p := &procMaps{mapReader: mapReader}
 	err := p.Refresh()
 	if err != nil {
 		return nil, err
@@ -37,7 +48,7 @@ func (m *procMaps) FindRegion(pc uint64) *MapRegion {
 }
 
 func (m *procMaps) Refresh() error {
-	lines, err := m.mapReader.ReadMaps(m.pid)
+	lines, err := m.mapReader.ReadLines()
 	if err != nil {
 		return err
 	}

@@ -10,7 +10,7 @@ type mockMapsReader struct {
 	err   error
 }
 
-func (m *mockMapsReader) ReadMaps(pid int) ([]string, error) {
+func (m *mockMapsReader) ReadLines() ([]string, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -160,7 +160,7 @@ func TestNewProcMaps(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewProcMaps(tt.pid, tt.reader)
+			got, err := NewProcMaps(tt.reader)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewProcMaps() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -181,7 +181,7 @@ func TestProcMaps_FindRegion(t *testing.T) {
 		},
 	}
 
-	maps, err := NewProcMaps(1234, reader)
+	maps, err := NewProcMaps(reader)
 	if err != nil {
 		t.Fatalf("NewProcMaps() error = %v", err)
 	}
@@ -349,7 +349,7 @@ func TestProcMaps_Refresh(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockReader := &mockMapsReader{lines: tt.initial}
-			maps, err := NewProcMaps(1234, mockReader)
+			maps, err := NewProcMaps(mockReader)
 			if err != nil {
 				t.Fatalf("NewProcMaps() error = %v", err)
 			}
@@ -385,7 +385,7 @@ func TestProcMaps_ParseMapsWithInvalidLines(t *testing.T) {
 		},
 	}
 
-	maps, err := NewProcMaps(1234, reader)
+	maps, err := NewProcMaps(reader)
 	if err != nil {
 		t.Fatalf("NewProcMaps() error = %v", err)
 	}
@@ -411,7 +411,7 @@ func TestProcMaps_EmptyMaps(t *testing.T) {
 		lines: []string{},
 	}
 
-	maps, err := NewProcMaps(1234, reader)
+	maps, err := NewProcMaps(reader)
 	if err != nil {
 		t.Fatalf("NewProcMaps() error = %v", err)
 	}

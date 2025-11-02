@@ -2,20 +2,21 @@ package symbolizer
 
 import (
 	"bufio"
-	"fmt"
 	"log/slog"
 	"os"
 )
 
-type ProcMapsReader struct{}
-
-func NewProcMapsReader() *ProcMapsReader {
-	return &ProcMapsReader{}
+type DataLoader struct {
+	Path string
 }
 
-func (r *ProcMapsReader) ReadMaps(pid int) ([]string, error) {
-	slog.Debug("Reading proc maps for pid", "pid", pid)
-	f, err := os.Open(fmt.Sprintf("/proc/%d/maps", pid))
+func NewDataLoader(path string) *DataLoader {
+	return &DataLoader{Path: path}
+}
+
+func (d *DataLoader) ReadLines() ([]string, error) {
+	slog.Debug("Loading lines from (pseudo-)file", "path", d.Path)
+	f, err := os.Open(d.Path)
 	if err != nil {
 		return nil, err
 	}
