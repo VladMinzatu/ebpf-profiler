@@ -157,7 +157,7 @@ func NewSymbolDataCache(pid int) *SymbolDataCache {
 	return &SymbolDataCache{pid: pid, cache: make(map[string]*SymbolData)}
 }
 
-func (c *SymbolDataCache) Get(path string) (*SymbolData, error) {
+func (c *SymbolDataCache) Get(path string) (SymbolDataResolver, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if data, ok := c.cache[path]; ok {

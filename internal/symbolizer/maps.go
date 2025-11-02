@@ -11,13 +11,6 @@ type MapsReader interface {
 	ReadMaps(pid int) ([]string, error)
 }
 
-type MapRegion struct {
-	Start, End uint64
-	Offset     uint64
-	Perms      string
-	Path       string
-}
-
 type procMaps struct {
 	pid       int
 	mapReader MapsReader

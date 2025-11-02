@@ -72,7 +72,7 @@ func (s *KernelSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
 }
 
 type VmlinuxResolver struct {
-	symbolData *SymbolData
+	symbolData SymbolDataResolver
 }
 
 func NewVmlinuxResolver(symbolDataCache *SymbolDataCache, path string) (*VmlinuxResolver, error) {
