@@ -5,10 +5,6 @@ type Symbol struct {
 	PC   uint64
 }
 
-type SymbolDataResolver interface {
-	ResolvePC(pc uint64, slide uint64) (*Symbol, error)
-}
-
-type SymbolDataProvider interface {
-	Get(path string) (SymbolDataResolver, error)
+type SymbolResolver interface {
+	ResolvePC(pc uint64, path string, slide uint64) (*Symbol, error)
 }

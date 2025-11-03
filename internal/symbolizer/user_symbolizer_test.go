@@ -43,41 +43,26 @@ func (m *mockProcMapsProviderWithCustomFind) FindRegion(pc uint64) *MapRegion {
 	return m.mockProcMapsProvider.FindRegion(pc)
 }
 
-type mockSymbolDataResolver struct {
-	symbols map[uint64]*Symbol
+type mockSymbolResolver struct {
+	symbols map[string]map[uint64]*Symbol
 	err     error
 }
 
-func (m *mockSymbolDataResolver) ResolvePC(pc uint64, slide uint64) (*Symbol, error) {
+func (m *mockSymbolResolver) ResolvePC(pc uint64, path string, slide uint64) (*Symbol, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
+	var symMap map[uint64]*Symbol
+	var ok bool
+	if symMap, ok = m.symbols[path]; !ok {
+		return nil, errors.New("symbol data not found")
+	}
 	target := pc - slide
-	if sym, ok := m.symbols[target]; ok {
+	if sym, ok := symMap[target]; ok {
 		return sym, nil
 	}
 
-	if len(m.symbols) > 0 {
-		for _, sym := range m.symbols {
-			return &Symbol{Name: sym.Name, PC: target}, nil
-		}
-	}
 	return &Symbol{Name: "unknown", PC: target}, nil
-}
-
-type mockSymbolDataProvider struct {
-	data map[string]*mockSymbolDataResolver
-	err  error
-}
-
-func (m *mockSymbolDataProvider) Get(path string) (SymbolDataResolver, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	if resolver, ok := m.data[path]; ok {
-		return resolver, nil
-	}
-	return nil, errors.New("symbol data not found")
 }
 
 func TestUserSymbolizer_Symbolize(t *testing.T) {
@@ -85,7 +70,7 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 		name           string
 		stack          []uint64
 		mapsProvider   *mockProcMapsProvider
-		symbolProvider *mockSymbolDataProvider
+		symbolResolver *mockSymbolResolver
 		wantSymbols    int
 		wantErr        bool
 		errContains    string
@@ -99,17 +84,13 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 					{Start: 0x7f8a9b000000, End: 0x7f8a9b002000, Offset: 0x1000, Path: "/usr/lib/libc.so.6"},
 				},
 			},
-			symbolProvider: &mockSymbolDataProvider{
-				data: map[string]*mockSymbolDataResolver{
-					"/usr/bin/myprog": {
-						symbols: map[uint64]*Symbol{
-							0x100: {Name: "main", PC: 0},
-						},
+			symbolResolver: &mockSymbolResolver{
+				symbols: map[string]map[uint64]*Symbol{
+					"/usr/bin/myprog": map[uint64]*Symbol{
+						0x100: {Name: "main", PC: 0},
 					},
-					"/usr/lib/libc.so.6": {
-						symbols: map[uint64]*Symbol{
-							0x100: {Name: "printf", PC: 0},
-						},
+					"/usr/lib/libc.so.6": map[uint64]*Symbol{
+						0x100: {Name: "printf", PC: 0},
 					},
 				},
 			},
@@ -124,12 +105,10 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 					{Start: 0x55d4b2000000, End: 0x55d4b2021000, Offset: 0x0, Path: "/usr/bin/myprog"},
 				},
 			},
-			symbolProvider: &mockSymbolDataProvider{
-				data: map[string]*mockSymbolDataResolver{
-					"/usr/bin/myprog": {
-						symbols: map[uint64]*Symbol{
-							0x100: {Name: "main", PC: 0},
-						},
+			symbolResolver: &mockSymbolResolver{
+				symbols: map[string]map[uint64]*Symbol{
+					"/usr/bin/myprog": map[uint64]*Symbol{
+						0x100: {Name: "main", PC: 0},
 					},
 				},
 			},
@@ -144,7 +123,7 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 					{Start: 0x55d4b2000000, End: 0x55d4b2021000, Offset: 0x0, Path: "/usr/bin/myprog"},
 				},
 			},
-			symbolProvider: &mockSymbolDataProvider{
+			symbolResolver: &mockSymbolResolver{
 				err: errors.New("provider error"),
 			},
 			wantErr:     true,
@@ -158,8 +137,8 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 					{Start: 0x55d4b2000000, End: 0x55d4b2021000, Offset: 0x0, Path: "/usr/bin/myprog"},
 				},
 			},
-			symbolProvider: &mockSymbolDataProvider{
-				data: map[string]*mockSymbolDataResolver{},
+			symbolResolver: &mockSymbolResolver{
+				symbols: map[string]map[uint64]*Symbol{},
 			},
 			wantErr:     true,
 			errContains: "failed to resolve symbol",
@@ -170,8 +149,8 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 			mapsProvider: &mockProcMapsProvider{
 				regions: []MapRegion{},
 			},
-			symbolProvider: &mockSymbolDataProvider{
-				data: map[string]*mockSymbolDataResolver{},
+			symbolResolver: &mockSymbolResolver{
+				symbols: map[string]map[uint64]*Symbol{},
 			},
 			wantSymbols: 0,
 			wantErr:     false,
@@ -180,7 +159,7 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := NewUserSymbolizer(1234, tt.mapsProvider, tt.symbolProvider)
+			s := NewUserSymbolizer(1234, tt.mapsProvider, tt.symbolResolver)
 
 			symbols, err := s.Symbolize(tt.stack)
 			if (err != nil) != tt.wantErr {
@@ -254,11 +233,11 @@ func TestUserSymbolizer_getMapsProvider(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &UserSymbolizer{
-				pid:                1234,
-				mapsProvider:       tt.mapsProvider,
-				mapsCachedAt:       tt.cachedAt,
-				mapsCacheTtl:       5 * time.Second,
-				symbolDataProvider: &mockSymbolDataProvider{data: map[string]*mockSymbolDataResolver{}},
+				pid:            1234,
+				mapsProvider:   tt.mapsProvider,
+				mapsCachedAt:   tt.cachedAt,
+				mapsCacheTtl:   5 * time.Second,
+				symbolResolver: &mockSymbolResolver{symbols: map[string]map[uint64]*Symbol{}},
 			}
 
 			initialCalls := tt.mapsProvider.refreshCalls
@@ -302,11 +281,11 @@ func TestUserSymbolizer_getMapsProvider_CacheExpiration(t *testing.T) {
 	}
 
 	s := &UserSymbolizer{
-		pid:                1234,
-		mapsProvider:       mockMaps,
-		mapsCachedAt:       time.Now().Add(-10 * time.Second), // Expired
-		mapsCacheTtl:       5 * time.Second,
-		symbolDataProvider: &mockSymbolDataProvider{data: map[string]*mockSymbolDataResolver{}},
+		pid:            1234,
+		mapsProvider:   mockMaps,
+		mapsCachedAt:   time.Now().Add(-10 * time.Second), // Expired
+		mapsCacheTtl:   5 * time.Second,
+		symbolResolver: &mockSymbolResolver{symbols: map[string]map[uint64]*Symbol{}},
 	}
 
 	// First call should refresh
@@ -354,11 +333,11 @@ func TestUserSymbolizer_refreshMapsProvider(t *testing.T) {
 	}
 
 	s := &UserSymbolizer{
-		pid:                1234,
-		mapsProvider:       mockMaps,
-		mapsCachedAt:       time.Unix(0, 0),
-		mapsCacheTtl:       5 * time.Second,
-		symbolDataProvider: &mockSymbolDataProvider{data: map[string]*mockSymbolDataResolver{}},
+		pid:            1234,
+		mapsProvider:   mockMaps,
+		mapsCachedAt:   time.Unix(0, 0),
+		mapsCacheTtl:   5 * time.Second,
+		symbolResolver: &mockSymbolResolver{symbols: map[string]map[uint64]*Symbol{}},
 	}
 
 	// Verify initial cache time
@@ -413,17 +392,15 @@ func TestUserSymbolizer_Symbolize_WithCacheRefresh(t *testing.T) {
 		return &mockMaps.regions[0]
 	}
 
-	symbolProvider := &mockSymbolDataProvider{
-		data: map[string]*mockSymbolDataResolver{
-			"/usr/bin/myprog": {
-				symbols: map[uint64]*Symbol{
-					0x100: {Name: "main", PC: 0},
-				},
+	symbolResolver := &mockSymbolResolver{
+		symbols: map[string]map[uint64]*Symbol{
+			"/usr/bin/myprog": map[uint64]*Symbol{
+				0x100: {Name: "main", PC: 0},
 			},
 		},
 	}
 
-	s := NewUserSymbolizer(1234, mockMaps, symbolProvider)
+	s := NewUserSymbolizer(1234, mockMaps, symbolResolver)
 
 	// This should trigger cache refresh and retry
 	symbols, err := s.Symbolize([]uint64{0x55d4b2000100})
@@ -448,10 +425,10 @@ func TestNewUserSymbolizer(t *testing.T) {
 			{Start: 0x1000, End: 0x2000, Path: "/bin/test"},
 		},
 	}
-	symbolProvider := &mockSymbolDataProvider{
-		data: map[string]*mockSymbolDataResolver{},
+	symbolResolver := &mockSymbolResolver{
+		symbols: map[string]map[uint64]*Symbol{},
 	}
-	s := NewUserSymbolizer(1234, mapsProvider, symbolProvider)
+	s := NewUserSymbolizer(1234, mapsProvider, symbolResolver)
 
 	if s == nil {
 		t.Fatal("NewUserSymbolizer() returned nil")
@@ -465,7 +442,7 @@ func TestNewUserSymbolizer(t *testing.T) {
 	if s.mapsProvider != mapsProvider {
 		t.Error("NewUserSymbolizer() did not set mapsProvider correctly")
 	}
-	if s.symbolDataProvider != symbolProvider {
+	if s.symbolResolver != symbolResolver {
 		t.Error("NewUserSymbolizer() did not set symbolDataProvider correctly")
 	}
 	if !s.mapsCachedAt.Equal(time.Unix(0, 0)) {

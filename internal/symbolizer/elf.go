@@ -19,9 +19,9 @@ type SymbolData struct {
 	TextAddr   uint64
 }
 
-func (d *SymbolData) ResolvePC(pc uint64, slide uint64) (*Symbol, error) {
+func (d *SymbolData) ResolvePC(pc uint64, path string, slide uint64) (*Symbol, error) {
 	if d.GoSymTab != nil {
-		return d.resolvePCFromGoSymbolTable(pc, slide)
+		return d.resolvePCFromGoSymbolTable(pc, path, slide)
 	}
 	if d.DwarfData != nil {
 		return d.resolvePCFromDwarfData(pc, slide)
@@ -32,7 +32,7 @@ func (d *SymbolData) ResolvePC(pc uint64, slide uint64) (*Symbol, error) {
 	return nil, errors.New("no symbol data available")
 }
 
-func (d *SymbolData) resolvePCFromGoSymbolTable(pc uint64, slide uint64) (*Symbol, error) {
+func (d *SymbolData) resolvePCFromGoSymbolTable(pc uint64, path string, slide uint64) (*Symbol, error) {
 	slog.Debug("Resolving PC from Go symbol table", "pc", pc, "slide", slide)
 
 	target := pc - slide
@@ -148,30 +148,30 @@ func (d *SymbolData) resolvePCFromElfSymbols(pc uint64, slide uint64) (*Symbol, 
 
 type SymbolDataCache struct {
 	// TODO: we lazy load and cache symbols without any LRU eviction - we should add it in the future
-	cache map[string]*SymbolData
+	cache map[string]SymbolResolver
 	mu    sync.RWMutex
 	pid   int
 }
 
 func NewSymbolDataCache(pid int) *SymbolDataCache {
-	return &SymbolDataCache{pid: pid, cache: make(map[string]*SymbolData)}
+	return &SymbolDataCache{pid: pid, cache: make(map[string]SymbolResolver)}
 }
 
-func (c *SymbolDataCache) Get(path string) (SymbolDataResolver, error) {
+func (c *SymbolDataCache) ResolvePC(pc uint64, path string, slide uint64) (*Symbol, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if data, ok := c.cache[path]; ok {
-		return data, nil
+		return data.ResolvePC(pc, path, slide)
 	}
 	data, err := c.loadSymbolData(path)
 	if err != nil {
 		return nil, err
 	}
 	c.cache[path] = data
-	return data, nil
+	return data.ResolvePC(pc, path, slide)
 }
 
-func (c *SymbolDataCache) loadSymbolData(path string) (*SymbolData, error) {
+func (c *SymbolDataCache) loadSymbolData(path string) (SymbolResolver, error) {
 	data := &SymbolData{}
 	elfSymbols, err := readElfSymbols(c.pid, path)
 	if err != nil {

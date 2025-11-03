@@ -12,17 +12,17 @@ import (
 )
 
 type KernelSymbolizer struct {
-	symbolDataCache *SymbolDataCache
-	vmlinuxPath     string
-	kallsyms        *KallsymsResolver
-	vmlinux         *VmlinuxResolver
+	symbolResolver SymbolResolver
+	vmlinuxPath    string
+	kallsyms       *KallsymsResolver
+	vmlinux        *VmlinuxResolver
 
 	vmlinuxErr  error
 	kallsymsErr error
 }
 
-func NewKernelSymbolizer(symbolDataCache *SymbolDataCache, vmlinuxPath string) *KernelSymbolizer {
-	return &KernelSymbolizer{symbolDataCache: symbolDataCache, vmlinuxPath: vmlinuxPath}
+func NewKernelSymbolizer(symbolResolver SymbolResolver, vmlinuxPath string) *KernelSymbolizer {
+	return &KernelSymbolizer{symbolResolver: symbolResolver, vmlinuxPath: vmlinuxPath}
 }
 
 func (s *KernelSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
@@ -30,7 +30,7 @@ func (s *KernelSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
 	var resolver func(pc uint64) (*Symbol, error)
 
 	if s.vmlinux == nil && s.vmlinuxPath != "" && s.vmlinuxErr == nil {
-		vr, err := NewVmlinuxResolver(s.symbolDataCache, s.vmlinuxPath)
+		vr, err := NewVmlinuxResolver(s.symbolResolver, s.vmlinuxPath)
 		if err != nil {
 			slog.Error("Failed to load vmlinux", "path", s.vmlinuxPath, "error", err)
 			s.vmlinuxErr = err
@@ -72,19 +72,16 @@ func (s *KernelSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
 }
 
 type VmlinuxResolver struct {
-	symbolData SymbolDataResolver
+	path           string
+	symbolResolver SymbolResolver
 }
 
-func NewVmlinuxResolver(symbolDataCache *SymbolDataCache, path string) (*VmlinuxResolver, error) {
-	symbolData, err := symbolDataCache.Get(path)
-	if err != nil {
-		return nil, err
-	}
-	return &VmlinuxResolver{symbolData: symbolData}, nil
+func NewVmlinuxResolver(symbolResolver SymbolResolver, path string) (*VmlinuxResolver, error) {
+	return &VmlinuxResolver{path: path, symbolResolver: symbolResolver}, nil
 }
 
 func (r *VmlinuxResolver) Resolve(pc uint64) (*Symbol, error) {
-	sym, err := r.symbolData.ResolvePC(pc, 0)
+	sym, err := r.symbolResolver.ResolvePC(pc, r.path, 0)
 	if err != nil {
 		return nil, err
 	}

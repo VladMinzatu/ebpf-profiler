@@ -15,19 +15,19 @@ type ProcMapsProvider interface {
 type UserSymbolizer struct {
 	pid int
 
-	symbolDataProvider SymbolDataProvider
-	mapsProvider       ProcMapsProvider
+	mapsProvider   ProcMapsProvider
+	symbolResolver SymbolResolver
 
 	mapsCachedAt time.Time
 	mapsCacheTtl time.Duration
 	mapsMu       sync.RWMutex
 }
 
-func NewUserSymbolizer(pid int, procMapsProvider ProcMapsProvider, symbolDataProvider SymbolDataProvider) *UserSymbolizer {
+func NewUserSymbolizer(pid int, procMapsProvider ProcMapsProvider, symbolResolver SymbolResolver) *UserSymbolizer {
 	return &UserSymbolizer{
-		pid:                pid,
-		symbolDataProvider: symbolDataProvider,
-		mapsProvider:       procMapsProvider,
+		pid:            pid,
+		symbolResolver: symbolResolver,
+		mapsProvider:   procMapsProvider,
 
 		mapsCachedAt: time.Unix(0, 0),
 		mapsCacheTtl: 5 * time.Second,
@@ -56,11 +56,7 @@ func (s *UserSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
 			}
 		}
 
-		symbolData, err := s.symbolDataProvider.Get(r.Path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve symbol for pc=%d: %v", pc, err)
-		}
-		symbol, err := symbolData.ResolvePC(pc, r.Offset)
+		symbol, err := s.symbolResolver.ResolvePC(pc, r.Path, r.Offset)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve symbol for pc=%d: %v", pc, err)
 		}
