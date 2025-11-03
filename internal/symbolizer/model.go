@@ -6,5 +6,5 @@ type Symbol struct {
 }
 
 type SymbolResolver interface {
-	ResolvePC(pc uint64, path string, slide uint64) (*Symbol, error)
+	ResolvePC(path string, pc uint64, slide uint64) (*Symbol, error)
 }

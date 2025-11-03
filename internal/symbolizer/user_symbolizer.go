@@ -56,7 +56,7 @@ func (s *UserSymbolizer) Symbolize(stack []uint64) ([]Symbol, error) {
 			}
 		}
 
-		symbol, err := s.symbolResolver.ResolvePC(pc, r.Path, r.Offset)
+		symbol, err := s.symbolResolver.ResolvePC(r.Path, pc, r.Offset)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve symbol for pc=%d: %v", pc, err)
 		}

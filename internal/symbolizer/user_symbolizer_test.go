@@ -48,7 +48,7 @@ type mockSymbolResolver struct {
 	err     error
 }
 
-func (m *mockSymbolResolver) ResolvePC(pc uint64, path string, slide uint64) (*Symbol, error) {
+func (m *mockSymbolResolver) ResolvePC(path string, pc uint64, slide uint64) (*Symbol, error) {
 	if m.err != nil {
 		return nil, m.err
 	}

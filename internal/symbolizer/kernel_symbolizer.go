@@ -81,7 +81,7 @@ func NewVmlinuxResolver(symbolResolver SymbolResolver, path string) (*VmlinuxRes
 }
 
 func (r *VmlinuxResolver) Resolve(pc uint64) (*Symbol, error) {
-	sym, err := r.symbolResolver.ResolvePC(pc, r.path, 0)
+	sym, err := r.symbolResolver.ResolvePC(r.path, pc, 0)
 	if err != nil {
 		return nil, err
 	}

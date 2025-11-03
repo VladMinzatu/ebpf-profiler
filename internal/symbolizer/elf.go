@@ -19,9 +19,9 @@ type SymbolData struct {
 	TextAddr   uint64
 }
 
-func (d *SymbolData) ResolvePC(pc uint64, path string, slide uint64) (*Symbol, error) {
+func (d *SymbolData) ResolvePC(path string, pc uint64, slide uint64) (*Symbol, error) {
 	if d.GoSymTab != nil {
-		return d.resolvePCFromGoSymbolTable(pc, path, slide)
+		return d.resolvePCFromGoSymbolTable(pc, slide)
 	}
 	if d.DwarfData != nil {
 		return d.resolvePCFromDwarfData(pc, slide)
@@ -32,7 +32,7 @@ func (d *SymbolData) ResolvePC(pc uint64, path string, slide uint64) (*Symbol, e
 	return nil, errors.New("no symbol data available")
 }
 
-func (d *SymbolData) resolvePCFromGoSymbolTable(pc uint64, path string, slide uint64) (*Symbol, error) {
+func (d *SymbolData) resolvePCFromGoSymbolTable(pc uint64, slide uint64) (*Symbol, error) {
 	slog.Debug("Resolving PC from Go symbol table", "pc", pc, "slide", slide)
 
 	target := pc - slide
@@ -157,18 +157,18 @@ func NewSymbolDataCache(pid int) *SymbolDataCache {
 	return &SymbolDataCache{pid: pid, cache: make(map[string]SymbolResolver)}
 }
 
-func (c *SymbolDataCache) ResolvePC(pc uint64, path string, slide uint64) (*Symbol, error) {
+func (c *SymbolDataCache) ResolvePC(path string, pc uint64, slide uint64) (*Symbol, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if data, ok := c.cache[path]; ok {
-		return data.ResolvePC(pc, path, slide)
+		return data.ResolvePC(path, pc, slide)
 	}
 	data, err := c.loadSymbolData(path)
 	if err != nil {
 		return nil, err
 	}
 	c.cache[path] = data
-	return data.ResolvePC(pc, path, slide)
+	return data.ResolvePC(path, pc, slide)
 }
 
 func (c *SymbolDataCache) loadSymbolData(path string) (SymbolResolver, error) {
