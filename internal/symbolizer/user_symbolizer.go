@@ -12,6 +12,10 @@ type ProcMapsProvider interface {
 	Refresh() error
 }
 
+type SymbolResolver interface {
+	ResolvePC(path string, pc uint64, slide uint64) (*Symbol, error)
+}
+
 type UserSymbolizer struct {
 	pid int
 

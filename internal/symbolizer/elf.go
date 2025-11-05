@@ -12,6 +12,13 @@ import (
 	"sync"
 )
 
+type SymbolDataCache struct {
+	// TODO: we lazy load and cache symbols without any LRU eviction - we should add it in the future
+	cache map[string]SymbolResolver
+	mu    sync.RWMutex
+	pid   int
+}
+
 type SymbolData struct {
 	ElfSymbols []elf.Symbol
 	DwarfData  *dwarf.Data
@@ -144,13 +151,6 @@ func (d *SymbolData) resolvePCFromElfSymbols(pc uint64, slide uint64) (*Symbol, 
 		return nil, errors.New("no matching symbol")
 	}
 	return &Symbol{Name: best.Name, PC: target - best.Value}, nil
-}
-
-type SymbolDataCache struct {
-	// TODO: we lazy load and cache symbols without any LRU eviction - we should add it in the future
-	cache map[string]SymbolResolver
-	mu    sync.RWMutex
-	pid   int
 }
 
 func NewSymbolDataCache(pid int) *SymbolDataCache {
