@@ -26,6 +26,47 @@ type SymbolData struct {
 	TextAddr   uint64
 }
 
+func NewSymbolDataCache(pid int) *SymbolDataCache {
+	return &SymbolDataCache{pid: pid, cache: make(map[string]SymbolResolver)}
+}
+
+func (c *SymbolDataCache) ResolvePC(path string, pc uint64, slide uint64) (*Symbol, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if data, ok := c.cache[path]; ok {
+		return data.ResolvePC(path, pc, slide)
+	}
+	data, err := c.loadSymbolData(path)
+	if err != nil {
+		return nil, err
+	}
+	c.cache[path] = data
+	return data.ResolvePC(path, pc, slide)
+}
+
+func (c *SymbolDataCache) loadSymbolData(path string) (SymbolResolver, error) {
+	data := &SymbolData{}
+	elfSymbols, err := readElfSymbols(c.pid, path)
+	if err != nil {
+		return nil, err
+	}
+	data.ElfSymbols = elfSymbols
+
+	dwarfData, err := readDwarfData(c.pid, path)
+	if err != nil {
+		slog.Info("Dwarf data not available", "path", path, "error", err)
+	}
+	data.DwarfData = dwarfData
+
+	goSymTab, err := readGoSymbolTable(c.pid, path)
+	if err != nil {
+		slog.Info("Go symbol table not available", "path", path, "error", err)
+	}
+	data.GoSymTab = goSymTab
+	c.cache[path] = data
+	return data, nil
+}
+
 func (d *SymbolData) ResolvePC(path string, pc uint64, slide uint64) (*Symbol, error) {
 	if d.GoSymTab != nil {
 		return d.resolvePCFromGoSymbolTable(pc, slide)
@@ -151,47 +192,6 @@ func (d *SymbolData) resolvePCFromElfSymbols(pc uint64, slide uint64) (*Symbol, 
 		return nil, errors.New("no matching symbol")
 	}
 	return &Symbol{Name: best.Name, PC: target - best.Value}, nil
-}
-
-func NewSymbolDataCache(pid int) *SymbolDataCache {
-	return &SymbolDataCache{pid: pid, cache: make(map[string]SymbolResolver)}
-}
-
-func (c *SymbolDataCache) ResolvePC(path string, pc uint64, slide uint64) (*Symbol, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if data, ok := c.cache[path]; ok {
-		return data.ResolvePC(path, pc, slide)
-	}
-	data, err := c.loadSymbolData(path)
-	if err != nil {
-		return nil, err
-	}
-	c.cache[path] = data
-	return data.ResolvePC(path, pc, slide)
-}
-
-func (c *SymbolDataCache) loadSymbolData(path string) (SymbolResolver, error) {
-	data := &SymbolData{}
-	elfSymbols, err := readElfSymbols(c.pid, path)
-	if err != nil {
-		return nil, err
-	}
-	data.ElfSymbols = elfSymbols
-
-	dwarfData, err := readDwarfData(c.pid, path)
-	if err != nil {
-		slog.Info("Dwarf data not available", "path", path, "error", err)
-	}
-	data.DwarfData = dwarfData
-
-	goSymTab, err := readGoSymbolTable(c.pid, path)
-	if err != nil {
-		slog.Info("Go symbol table not available", "path", path, "error", err)
-	}
-	data.GoSymTab = goSymTab
-	c.cache[path] = data
-	return data, nil
 }
 
 func readElfSymbols(pid int, path string) ([]elf.Symbol, error) {
