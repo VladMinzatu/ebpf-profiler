@@ -12,39 +12,47 @@ import (
 	"sync"
 )
 
-type SymbolDataCache struct {
+// use this interface to resolve symbols from ELF files
+type SymbolResolver interface {
+	ResolvePC(path string, pc uint64, slide uint64) (*Symbol, error)
+}
+
+type SymbolLoader interface {
+	LoadFrom(path string) (internalSymbolResolver, error)
+}
+
+// The standard SymbolResolver implementation that decorates concrete resolvers that rely on different symbols, and adds caching
+type CachingSymbolResolver struct {
 	// TODO: we lazy load and cache symbols without any LRU eviction - we should add it in the future
-	cache map[string]SymbolResolver
-	mu    sync.RWMutex
-	pid   int
+	cache        map[string]internalSymbolResolver
+	symbolLoader SymbolLoader
+	mu           sync.RWMutex
+	pid          int
 }
 
-type SymbolData struct {
-	ElfSymbols []elf.Symbol
-	DwarfData  *dwarf.Data
-	GoSymTab   *gosym.Table
-	TextAddr   uint64
+type internalSymbolResolver interface {
+	ResolvePC(pc uint64, slide uint64) (*Symbol, error)
 }
 
-func NewSymbolDataCache(pid int) *SymbolDataCache {
-	return &SymbolDataCache{pid: pid, cache: make(map[string]SymbolResolver)}
+func NewCachingSymbolResolver(pid int) *CachingSymbolResolver {
+	return &CachingSymbolResolver{pid: pid, cache: make(map[string]internalSymbolResolver)}
 }
 
-func (c *SymbolDataCache) ResolvePC(path string, pc uint64, slide uint64) (*Symbol, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if data, ok := c.cache[path]; ok {
-		return data.ResolvePC(path, pc, slide)
+func (c *CachingSymbolResolver) ResolvePC(path string, pc uint64, slide uint64) (*Symbol, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if resolver, ok := c.cache[path]; ok {
+		return resolver.ResolvePC(pc, slide)
 	}
-	data, err := c.loadSymbolData(path)
+	resolver, err := c.symbolLoader.LoadFrom(path)
 	if err != nil {
 		return nil, err
 	}
-	c.cache[path] = data
-	return data.ResolvePC(path, pc, slide)
+	c.cache[path] = resolver
+	return resolver.ResolvePC(pc, slide)
 }
 
-func (c *SymbolDataCache) loadSymbolData(path string) (SymbolResolver, error) {
+func (c *CachingSymbolResolver) loadSymbolData(path string) (internalSymbolResolver, error) {
 	data := &SymbolData{}
 	elfSymbols, err := readElfSymbols(c.pid, path)
 	if err != nil {
@@ -67,7 +75,7 @@ func (c *SymbolDataCache) loadSymbolData(path string) (SymbolResolver, error) {
 	return data, nil
 }
 
-func (d *SymbolData) ResolvePC(path string, pc uint64, slide uint64) (*Symbol, error) {
+func (d *SymbolData) ResolvePC(pc uint64, slide uint64) (*Symbol, error) {
 	if d.GoSymTab != nil {
 		return d.resolvePCFromGoSymbolTable(pc, slide)
 	}
