@@ -190,65 +190,73 @@ func (g *goSymbolResolver) ResolvePC(pc uint64, slide uint64) (*Symbol, error) {
 	return &Symbol{Name: fn.Name, PC: offset}, nil
 }
 
-func readElfSymbols(pid int, path string) ([]elf.Symbol, error) {
-	slog.Info("Loading ELF symbols", "path", path)
-	ef, err := openELF(pid, path)
-	if err != nil {
-		return nil, err
-	}
-	defer ef.Close()
-
-	syms := make([]elf.Symbol, 0)
-	if section := ef.Section(".symtab"); section != nil {
-		st, err := ef.Symbols()
-		if err == nil {
-			syms = append(syms, st...)
-		}
-	}
-	if section := ef.Section(".dynsym"); section != nil {
-		st, err := ef.DynamicSymbols()
-		if err == nil {
-			syms = append(syms, st...)
-		}
-	}
-	if len(syms) == 0 {
-		return nil, errors.New("no symbol tables available in ELF")
-	}
-	return syms, nil
+type CascadingSymbolLoader struct {
+	pid int
 }
 
-func readDwarfData(pid int, path string) (*dwarf.Data, error) {
-	slog.Info("Loading DWARF data", "path", path)
-	ef, err := openELF(pid, path)
-	if err != nil {
-		return nil, err
-	}
-	defer ef.Close()
-
-	dwarfData, err := ef.DWARF()
-	if err != nil {
-		return nil, err
-	}
-	return dwarfData, nil
+func NewCascadingSymbolLoader(pid int) *CascadingSymbolLoader {
+	return &CascadingSymbolLoader{pid: pid}
 }
 
-func readGoSymbolTable(pid int, path string) (*gosym.Table, error) {
-	slog.Info("Loading Go line table", "path", path)
-	ef, err := openELF(pid, path)
+func (c *CascadingSymbolLoader) LoadFrom(path string) (internalSymbolResolver, error) {
+	ef, err := openELF(c.pid, path)
 	if err != nil {
 		return nil, err
 	}
 	defer ef.Close()
 
 	pcln := ef.Section(".gopclntab")
-	if pcln == nil {
-		return nil, errors.New("no .gopclntab section")
+	if pcln != nil {
+		slog.Debug("Found .gopclntab section, will use GoSymbolResolver", "path", path)
+		goSymTab, err := readGoSymbolTable(ef, pcln)
+		if err != nil {
+			slog.Warn("Failed to read Go symbol table despite having .gopclntab section, will fall back from GoSymbolResolver", "path", path, "error", err)
+		} else {
+			return newGoSymbolResolver(goSymTab), nil
+		}
+
+		slog.Debug("Could not use .gopclntab section or not found, will try to use DWARF symbols if available", "path", path)
+		dwarfData, err := ef.DWARF()
+		if err == nil {
+			slog.Debug("Found DWARF data, will use DwarfSymbolResolver", "path", path)
+			return newDwarfSymbolResolver(dwarfData), nil
+		}
+
+		slog.Debug("Could not use .gopclntab section or not found, and DWARF data not available, will try to use ELF symbols", "path", path)
+		elfSymbols, err := readElfSymbols(ef)
+		if err == nil {
+			slog.Debug("Found ELF symbols, will use ElfSymbolResolver", "path", path)
+			return newElfSymbolResolver(elfSymbols), nil
+		}
+
+		slog.Debug("Could not use .gopclntab section or not found, and DWARF data not available, and ELF symbols not available, will return error", "path", path)
+		return nil, errors.New("no symbol data available")
 	}
-	pclnData, err := pcln.Data()
+	return nil, errors.New("no symbol data available")
+}
+
+func openELF(pid int, path string) (*elf.File, error) {
+	if path == "" || path == "[vdso]" || path == "[vsyscall]" || strings.HasPrefix(path, "[") {
+		exe := fmt.Sprintf("/proc/%d/exe", pid)
+		p, err := os.Readlink(exe)
+		if err == nil {
+			path = p
+		} else {
+			path = exe
+		}
+	}
+	ef, err := elf.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	return ef, nil
+}
+
+func readGoSymbolTable(ef *elf.File, gopclntab *elf.Section) (*gosym.Table, error) {
+	pclnData, err := gopclntab.Data()
 	if err != nil {
 		return nil, fmt.Errorf("read .gopclntab: %v", err)
 	}
-
 	var symtabData []byte
 	if symsec := ef.Section(".gosymtab"); symsec != nil {
 		if data, err2 := symsec.Data(); err2 == nil {
@@ -270,19 +278,22 @@ func readGoSymbolTable(pid int, path string) (*gosym.Table, error) {
 	return tab, nil
 }
 
-func openELF(pid int, path string) (*elf.File, error) {
-	if path == "" || path == "[vdso]" || path == "[vsyscall]" || strings.HasPrefix(path, "[") {
-		exe := fmt.Sprintf("/proc/%d/exe", pid)
-		p, err := os.Readlink(exe)
+func readElfSymbols(ef *elf.File) ([]elf.Symbol, error) {
+	syms := make([]elf.Symbol, 0)
+	if section := ef.Section(".symtab"); section != nil {
+		st, err := ef.Symbols()
 		if err == nil {
-			path = p
-		} else {
-			path = exe
+			syms = append(syms, st...)
 		}
 	}
-	ef, err := elf.Open(path)
-	if err != nil {
-		return nil, err
+	if section := ef.Section(".dynsym"); section != nil {
+		st, err := ef.DynamicSymbols()
+		if err == nil {
+			syms = append(syms, st...)
+		}
 	}
-	return ef, nil
+	if len(syms) == 0 {
+		return nil, errors.New("no symbol tables available in ELF")
+	}
+	return syms, nil
 }
