@@ -52,63 +52,47 @@ func (c *CachingSymbolResolver) ResolvePC(path string, pc uint64, slide uint64) 
 	return resolver.ResolvePC(pc, slide)
 }
 
-func (c *CachingSymbolResolver) loadSymbolData(path string) (internalSymbolResolver, error) {
-	data := &SymbolData{}
-	elfSymbols, err := readElfSymbols(c.pid, path)
-	if err != nil {
-		return nil, err
-	}
-	data.ElfSymbols = elfSymbols
-
-	dwarfData, err := readDwarfData(c.pid, path)
-	if err != nil {
-		slog.Info("Dwarf data not available", "path", path, "error", err)
-	}
-	data.DwarfData = dwarfData
-
-	goSymTab, err := readGoSymbolTable(c.pid, path)
-	if err != nil {
-		slog.Info("Go symbol table not available", "path", path, "error", err)
-	}
-	data.GoSymTab = goSymTab
-	c.cache[path] = data
-	return data, nil
+type elfSymbolResolover struct {
+	elfSymbols []elf.Symbol
 }
 
-func (d *SymbolData) ResolvePC(pc uint64, slide uint64) (*Symbol, error) {
-	if d.GoSymTab != nil {
-		return d.resolvePCFromGoSymbolTable(pc, slide)
-	}
-	if d.DwarfData != nil {
-		return d.resolvePCFromDwarfData(pc, slide)
-	}
-	if d.ElfSymbols != nil {
-		return d.resolvePCFromElfSymbols(pc, slide)
-	}
-	return nil, errors.New("no symbol data available")
+func newElfSymbolResolver(elfSymbols []elf.Symbol) *elfSymbolResolover {
+	return &elfSymbolResolover{elfSymbols: elfSymbols}
 }
 
-func (d *SymbolData) resolvePCFromGoSymbolTable(pc uint64, slide uint64) (*Symbol, error) {
-	slog.Debug("Resolving PC from Go symbol table", "pc", pc, "slide", slide)
-
+func (e *elfSymbolResolover) ResolvePC(pc uint64, slide uint64) (*Symbol, error) {
+	slog.Debug("Resolving PC from ELF symbols", "pc", pc, "slide", slide)
 	target := pc - slide
-	fn := d.GoSymTab.PCToFunc(target)
-	if fn == nil {
-		return nil, errors.New("pc not found in gopclntab")
+	var best *elf.Symbol
+	for _, s := range e.elfSymbols {
+		if s.Value == 0 {
+			continue
+		}
+		if s.Value <= target {
+			if best == nil || s.Value > best.Value {
+				best = &s
+			}
+		}
 	}
-	// Compute offset from function entry for parity with ELF path
-	var offset uint64
-	if target >= fn.Entry {
-		offset = target - fn.Entry
+	if best == nil {
+		return nil, errors.New("no matching symbol")
 	}
-	return &Symbol{Name: fn.Name, PC: offset}, nil
+	return &Symbol{Name: best.Name, PC: target - best.Value}, nil
 }
 
-func (d *SymbolData) resolvePCFromDwarfData(pc uint64, slide uint64) (*Symbol, error) {
+type dwarfSymbolResolver struct {
+	dwarfData *dwarf.Data
+}
+
+func newDwarfSymbolResolver(dwarfData *dwarf.Data) *dwarfSymbolResolver {
+	return &dwarfSymbolResolver{dwarfData: dwarfData}
+}
+
+func (d *dwarfSymbolResolver) ResolvePC(pc uint64, slide uint64) (*Symbol, error) {
 	slog.Debug("Resolving PC from DWARF data", "pc", pc, "slide", slide)
 	target := pc - slide
 
-	rdr := d.DwarfData.Reader()
+	rdr := d.dwarfData.Reader()
 	for {
 		ent, err := rdr.Next()
 		if err != nil {
@@ -123,7 +107,7 @@ func (d *SymbolData) resolvePCFromDwarfData(pc uint64, slide uint64) (*Symbol, e
 
 		// Prefer explicit ranges API (handles DWARF v5 rnglists and v2/v4 ranges)
 		inRange := false
-		if ranges, err := d.DwarfData.Ranges(ent); err == nil && len(ranges) > 0 {
+		if ranges, err := d.dwarfData.Ranges(ent); err == nil && len(ranges) > 0 {
 			for _, r := range ranges {
 				if target >= r[0] && target < r[1] {
 					inRange = true
@@ -182,24 +166,28 @@ func (d *SymbolData) resolvePCFromDwarfData(pc uint64, slide uint64) (*Symbol, e
 	return nil, errors.New("pc not found in DWARF")
 }
 
-func (d *SymbolData) resolvePCFromElfSymbols(pc uint64, slide uint64) (*Symbol, error) {
-	slog.Debug("Resolving PC from ELF symbols", "pc", pc, "slide", slide)
+type goSymbolResolver struct {
+	goSymTab *gosym.Table
+}
+
+func newGoSymbolResolver(goSymTab *gosym.Table) *goSymbolResolver {
+	return &goSymbolResolver{goSymTab: goSymTab}
+}
+
+func (g *goSymbolResolver) ResolvePC(pc uint64, slide uint64) (*Symbol, error) {
+	slog.Debug("Resolving PC from Go symbol table", "pc", pc, "slide", slide)
+
 	target := pc - slide
-	var best *elf.Symbol
-	for _, s := range d.ElfSymbols {
-		if s.Value == 0 {
-			continue
-		}
-		if s.Value <= target {
-			if best == nil || s.Value > best.Value {
-				best = &s
-			}
-		}
+	fn := g.goSymTab.PCToFunc(target)
+	if fn == nil {
+		return nil, errors.New("pc not found in gopclntab")
 	}
-	if best == nil {
-		return nil, errors.New("no matching symbol")
+	// Compute offset from function entry for parity with ELF path
+	var offset uint64
+	if target >= fn.Entry {
+		offset = target - fn.Entry
 	}
-	return &Symbol{Name: best.Name, PC: target - best.Value}, nil
+	return &Symbol{Name: fn.Name, PC: offset}, nil
 }
 
 func readElfSymbols(pid int, path string) ([]elf.Symbol, error) {
