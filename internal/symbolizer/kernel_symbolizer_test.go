@@ -52,8 +52,8 @@ func TestKernelSymbolizer_SuccessfulInitAndSymbolize(t *testing.T) {
 		wantOffset uint64
 	}{
 		{0, "start_kernel", 0xffffffff81000000, 0},
-		{1, "do_one", 0xffffffff81001000, 0x20},
-		{2, "do_two", 0xffffffff81002000, 0x5},
+		{1, "do_one", 0xffffffff81001020, 0x20},
+		{2, "do_two", 0xffffffff81002005, 0x5},
 	}
 
 	for _, tt := range tests {
