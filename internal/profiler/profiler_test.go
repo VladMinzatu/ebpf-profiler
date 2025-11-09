@@ -63,8 +63,8 @@ func TestProfiler_CollectorEmitsSamples(t *testing.T) {
 
 	sym := &mockSymbolizer{
 		sMap: map[uint64]symbolizer.Symbol{
-			0x1000: {Name: "f1", PC: 0},
-			0x2000: {Name: "f2", PC: 0},
+			0x1000: {Name: "f1"},
+			0x2000: {Name: "f2"},
 		},
 	}
 
@@ -108,7 +108,7 @@ func TestProfiler_CollectorDropsWhenConsumerBusy(t *testing.T) {
 	}
 
 	sym := &mockSymbolizer{
-		sMap: map[uint64]symbolizer.Symbol{0x10: {Name: "f", PC: 0}},
+		sMap: map[uint64]symbolizer.Symbol{0x10: {Name: "f"}},
 	}
 
 	p, err := NewProfiler(1, 100, 20*time.Millisecond, f, sym, sym)

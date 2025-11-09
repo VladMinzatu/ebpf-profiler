@@ -77,7 +77,7 @@ func (e *elfSymbolResolover) ResolvePC(pc uint64, slide uint64) (*Symbol, error)
 	if best == nil {
 		return nil, errors.New("no matching symbol")
 	}
-	return &Symbol{Name: best.Name, PC: target - best.Value}, nil
+	return &Symbol{Name: best.Name, Addr: pc, Offset: target - best.Value}, nil
 }
 
 type dwarfSymbolResolver struct {
@@ -161,7 +161,7 @@ func (d *dwarfSymbolResolver) ResolvePC(pc uint64, slide uint64) (*Symbol, error
 		if name == "" {
 			return nil, errors.New("dwarf subprogram without name")
 		}
-		return &Symbol{Name: name, PC: offset}, nil
+		return &Symbol{Name: name, Addr: pc, Offset: offset}, nil
 	}
 	return nil, errors.New("pc not found in DWARF")
 }
@@ -187,7 +187,7 @@ func (g *goSymbolResolver) ResolvePC(pc uint64, slide uint64) (*Symbol, error) {
 	if target >= fn.Entry {
 		offset = target - fn.Entry
 	}
-	return &Symbol{Name: fn.Name, PC: offset}, nil
+	return &Symbol{Name: fn.Name, Addr: pc, Offset: offset}, nil
 }
 
 type CascadingSymbolLoader struct {

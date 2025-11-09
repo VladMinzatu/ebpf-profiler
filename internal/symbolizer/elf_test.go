@@ -62,7 +62,7 @@ func TestCachingSymbolResolver_CachesResolver(t *testing.T) {
 		resolvers: map[string]internalSymbolResolver{},
 	}
 
-	r := &mockInternalResolver{retSymbol: &Symbol{Name: "foo", PC: 0x5}}
+	r := &mockInternalResolver{retSymbol: &Symbol{Name: "foo", Offset: 0x5}}
 	loader.resolvers["/bin/test"] = r
 
 	c := NewCachingSymbolResolver(123)
@@ -116,8 +116,8 @@ func TestCachingSymbolResolver_LoaderErrorNotCached(t *testing.T) {
 
 func TestCachingSymbolResolver_DifferentPathsIndependent(t *testing.T) {
 	loader := &mockSymbolLoader{resolvers: map[string]internalSymbolResolver{}}
-	resA := &mockInternalResolver{retSymbol: &Symbol{Name: "A", PC: 1}}
-	resB := &mockInternalResolver{retSymbol: &Symbol{Name: "B", PC: 2}}
+	resA := &mockInternalResolver{retSymbol: &Symbol{Name: "A", Addr: 0x2000, Offset: 1}}
+	resB := &mockInternalResolver{retSymbol: &Symbol{Name: "B", Addr: 0x3000, Offset: 2}}
 	loader.resolvers["/bin/A"] = resA
 	loader.resolvers["/bin/B"] = resB
 
@@ -155,7 +155,7 @@ func TestCachingSymbolResolver_ResolverReceivesPCAndSlide(t *testing.T) {
 	loader := &mockSymbolLoader{
 		resolvers: map[string]internalSymbolResolver{},
 	}
-	mockRes := &mockInternalResolver{retSymbol: &Symbol{Name: "Z", PC: 0}}
+	mockRes := &mockInternalResolver{retSymbol: &Symbol{Name: "Z"}}
 	loader.resolvers["/bin/z"] = mockRes
 
 	c := NewCachingSymbolResolver(1)
@@ -187,7 +187,7 @@ func TestCachingSymbolResolver_ConcurrentLoadOnlyOnce(t *testing.T) {
 		delay:     50 * time.Millisecond,
 	}
 
-	r := &mockInternalResolver{retSymbol: &Symbol{Name: "concurrent", PC: 0}}
+	r := &mockInternalResolver{retSymbol: &Symbol{Name: "concurrent"}}
 	loader.resolvers["/concurrent"] = r
 
 	c := NewCachingSymbolResolver(1)

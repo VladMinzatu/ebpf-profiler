@@ -62,7 +62,7 @@ func (m *mockSymbolResolver) ResolvePC(path string, pc uint64, slide uint64) (*S
 		return sym, nil
 	}
 
-	return &Symbol{Name: "unknown", PC: target}, nil
+	return &Symbol{Name: "unknown", Addr: target}, nil
 }
 
 func TestUserSymbolizer_Symbolize(t *testing.T) {
@@ -87,10 +87,10 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 			symbolResolver: &mockSymbolResolver{
 				symbols: map[string]map[uint64]*Symbol{
 					"/usr/bin/myprog": map[uint64]*Symbol{
-						0x100: {Name: "main", PC: 0},
+						0x100: {Name: "main"},
 					},
 					"/usr/lib/libc.so.6": map[uint64]*Symbol{
-						0x100: {Name: "printf", PC: 0},
+						0x100: {Name: "printf"},
 					},
 				},
 			},
@@ -108,7 +108,7 @@ func TestUserSymbolizer_Symbolize(t *testing.T) {
 			symbolResolver: &mockSymbolResolver{
 				symbols: map[string]map[uint64]*Symbol{
 					"/usr/bin/myprog": map[uint64]*Symbol{
-						0x100: {Name: "main", PC: 0},
+						0x100: {Name: "main"},
 					},
 				},
 			},
@@ -395,7 +395,7 @@ func TestUserSymbolizer_Symbolize_WithCacheRefresh(t *testing.T) {
 	symbolResolver := &mockSymbolResolver{
 		symbols: map[string]map[uint64]*Symbol{
 			"/usr/bin/myprog": map[uint64]*Symbol{
-				0x100: {Name: "main", PC: 0},
+				0x100: {Name: "main"},
 			},
 		},
 	}

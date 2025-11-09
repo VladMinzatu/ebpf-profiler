@@ -48,11 +48,12 @@ func TestKernelSymbolizer_SuccessfulInitAndSymbolize(t *testing.T) {
 	tests := []struct {
 		i          int
 		wantName   string
+		wantAddr   uint64
 		wantOffset uint64
 	}{
-		{0, "start_kernel", 0},
-		{1, "do_one", 0x20},
-		{2, "do_two", 0x5},
+		{0, "start_kernel", 0xffffffff81000000, 0},
+		{1, "do_one", 0xffffffff81001000, 0x20},
+		{2, "do_two", 0xffffffff81002000, 0x5},
 	}
 
 	for _, tt := range tests {
@@ -60,8 +61,11 @@ func TestKernelSymbolizer_SuccessfulInitAndSymbolize(t *testing.T) {
 		if got.Name != tt.wantName {
 			t.Errorf("symbol %d: want name %q got %q", tt.i, tt.wantName, got.Name)
 		}
-		if got.PC != tt.wantOffset {
-			t.Errorf("symbol %d: want offset 0x%x got 0x%x", tt.i, tt.wantOffset, got.PC)
+		if got.Addr != tt.wantAddr {
+			t.Errorf("symbol %d: want address 0x%x got 0x%x", tt.i, tt.wantAddr, got.Addr)
+		}
+		if got.Offset != tt.wantOffset {
+			t.Errorf("symbol %d: want offset 0x%x got 0x%x", tt.i, tt.wantOffset, got.Offset)
 		}
 	}
 
@@ -129,13 +133,13 @@ func TestKernelSymbolizer_SkipsUnresolvableFrames(t *testing.T) {
 		t.Fatalf("expected 2 symbols after skipping unresolvable frame, got %d", len(syms))
 	}
 
-	if syms[0].Name != "do_one" || syms[0].PC != 5 {
+	if syms[0].Name != "do_one" || syms[0].Offset != 5 {
 		t.Fatalf("unexpected first symbol: %+v", syms[0])
 	}
 
 	expectedOffset := uint64(0xffffffffffffffff) - 0xffffffff81001000
-	if syms[1].Name != "do_one" || syms[1].PC != expectedOffset {
-		t.Fatalf("unexpected second symbol: got %+v want name do_one offset 0x%x", syms[1], expectedOffset)
+	if syms[1].Name != "do_one" || syms[1].Offset != expectedOffset {
+		t.Fatalf("unexpected second symbol: want name do_one, address 0x%x, offset 0x%x, got %+v", uint64(0xffffffffffffffff), expectedOffset, syms[1])
 	}
 
 	if loader.calls != 1 {

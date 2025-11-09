@@ -70,5 +70,5 @@ func (r *KallsymsResolver) Resolve(pc uint64) (*Symbol, error) {
 		return nil, fmt.Errorf("no kernel symbol <= pc: 0x%x", pc)
 	}
 	entry := r.entries[i-1]
-	return &Symbol{Name: entry.name, PC: pc - entry.addr}, nil
+	return &Symbol{Name: entry.name, Addr: pc, Offset: pc - entry.addr}, nil
 }

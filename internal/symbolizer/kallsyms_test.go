@@ -42,14 +42,15 @@ func TestInitKallsymsResolver_and_Resolve(t *testing.T) {
 		tests := []struct {
 			pc           uint64
 			wantName     string
+			wantAddr     uint64
 			wantOffset   uint64
 			expectErr    bool
 			errSubstring string
 		}{
-			{pc: 0xffffffff81000000, wantName: "start_kernel", wantOffset: 0, expectErr: false},
-			{pc: 0xffffffff81001010, wantName: "do_one", wantOffset: 0x10, expectErr: false},
-			{pc: 0xffffffff81002005, wantName: "do_two", wantOffset: 0x5, expectErr: false},
-			{pc: 0xffffffff81003000, wantName: "last_func", wantOffset: 0, expectErr: false},
+			{pc: 0xffffffff81000000, wantName: "start_kernel", wantAddr: 0xffffffff81000000, wantOffset: 0, expectErr: false},
+			{pc: 0xffffffff81001010, wantName: "do_one", wantAddr: 0xffffffff81001010, wantOffset: 0x10, expectErr: false},
+			{pc: 0xffffffff81002005, wantName: "do_two", wantAddr: 0xffffffff81002005, wantOffset: 0x5, expectErr: false},
+			{pc: 0xffffffff81003000, wantName: "last_func", wantAddr: 0xffffffff81003000, wantOffset: 0, expectErr: false},
 			{pc: 0xffffffff80fffeff, expectErr: true, errSubstring: "no kernel symbol"},
 		}
 
@@ -75,8 +76,11 @@ func TestInitKallsymsResolver_and_Resolve(t *testing.T) {
 				if sym.Name != tt.wantName {
 					t.Fatalf("unexpected symbol name: want %q got %q", tt.wantName, sym.Name)
 				}
-				if sym.PC != tt.wantOffset {
-					t.Fatalf("unexpected offset: want 0x%x got 0x%x", tt.wantOffset, sym.PC)
+				if sym.Addr != tt.wantAddr {
+					t.Fatalf("unexpected address: want 0x%x got 0x%x", tt.wantAddr, sym.Addr)
+				}
+				if sym.Offset != tt.wantOffset {
+					t.Fatalf("unexpected offset: want 0x%x got 0x%x", tt.wantOffset, sym.Offset)
 				}
 			})
 		}
@@ -127,8 +131,11 @@ func TestInitKallsymsResolver_and_Resolve(t *testing.T) {
 		if s.Name != "spaced_name" {
 			t.Fatalf("expected spaced_name, got %q", s.Name)
 		}
-		if s.PC != 5 {
-			t.Fatalf("expected offset 5, got 0x%x", s.PC)
+		if s.Addr != 0xffffffff81010005 {
+			t.Fatalf("expected address 0x%x, got 0x%x", uint64(0xffffffff81010005), s.Addr)
+		}
+		if s.Offset != 5 {
+			t.Fatalf("expected offset 5, got 0x%x", s.Offset)
 		}
 
 		s2, err := resolver.Resolve(0xffffffff81020010)
