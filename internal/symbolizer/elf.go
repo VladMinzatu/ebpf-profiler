@@ -34,8 +34,8 @@ type internalSymbolResolver interface {
 	ResolvePC(pc uint64, slide uint64) (*Symbol, error)
 }
 
-func NewCachingSymbolResolver(pid int) *CachingSymbolResolver {
-	return &CachingSymbolResolver{pid: pid, cache: make(map[string]internalSymbolResolver)}
+func NewCachingSymbolResolver(pid int, symbolLoader SymbolLoader) *CachingSymbolResolver {
+	return &CachingSymbolResolver{pid: pid, symbolLoader: symbolLoader, cache: make(map[string]internalSymbolResolver)}
 }
 
 func (c *CachingSymbolResolver) ResolvePC(path string, pc uint64, slide uint64) (*Symbol, error) {

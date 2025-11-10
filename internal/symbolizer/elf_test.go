@@ -65,7 +65,7 @@ func TestCachingSymbolResolver_CachesResolver(t *testing.T) {
 	r := &mockInternalResolver{retSymbol: &Symbol{Name: "foo", Offset: 0x5}}
 	loader.resolvers["/bin/test"] = r
 
-	c := NewCachingSymbolResolver(123)
+	c := NewCachingSymbolResolver(123, loader)
 	c.symbolLoader = loader
 
 	sym, err := c.ResolvePC("/bin/test", 0x1010, 0)
@@ -96,7 +96,7 @@ func TestCachingSymbolResolver_LoaderErrorNotCached(t *testing.T) {
 		err:       errors.New("open failed"),
 	}
 
-	c := NewCachingSymbolResolver(1)
+	c := NewCachingSymbolResolver(1, loader)
 	c.symbolLoader = loader
 
 	_, err := c.ResolvePC("/bad", 0x0, 0)
@@ -121,7 +121,7 @@ func TestCachingSymbolResolver_DifferentPathsIndependent(t *testing.T) {
 	loader.resolvers["/bin/A"] = resA
 	loader.resolvers["/bin/B"] = resB
 
-	c := NewCachingSymbolResolver(1)
+	c := NewCachingSymbolResolver(1, loader)
 	c.symbolLoader = loader
 
 	sa, err := c.ResolvePC("/bin/A", 0x2000, 0)
@@ -158,7 +158,7 @@ func TestCachingSymbolResolver_ResolverReceivesPCAndSlide(t *testing.T) {
 	mockRes := &mockInternalResolver{retSymbol: &Symbol{Name: "Z"}}
 	loader.resolvers["/bin/z"] = mockRes
 
-	c := NewCachingSymbolResolver(1)
+	c := NewCachingSymbolResolver(1, loader)
 	c.symbolLoader = loader
 
 	pc := uint64(0xdeadbeef)
@@ -190,7 +190,7 @@ func TestCachingSymbolResolver_ConcurrentLoadOnlyOnce(t *testing.T) {
 	r := &mockInternalResolver{retSymbol: &Symbol{Name: "concurrent"}}
 	loader.resolvers["/concurrent"] = r
 
-	c := NewCachingSymbolResolver(1)
+	c := NewCachingSymbolResolver(1, loader)
 	c.symbolLoader = loader
 
 	const goroutines = 10

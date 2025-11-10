@@ -23,7 +23,7 @@ func main() {
 
 	pid := os.Getpid()
 	procMapsProvider, _ := symbolizer.NewProcMaps(symbolizer.NewProcMapsReader(pid))
-	symbolDataProvider := symbolizer.NewCachingSymbolResolver(pid)
+	symbolDataProvider := symbolizer.NewCachingSymbolResolver(pid, symbolizer.NewCascadingSymbolLoader(pid))
 	userSymbolizer := symbolizer.NewUserSymbolizer(pid, procMapsProvider, symbolDataProvider)
 	kernelSymbolizer := symbolizer.NewKernelSymbolizer(symbolizer.NewKallsymsReader())
 	p, err := profiler.NewProfiler(pid, 1000_000, 1*time.Second, backend, userSymbolizer, kernelSymbolizer)
