@@ -1,14 +1,15 @@
 package main
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/VladMinzatu/ebpf-profiler/internal/ebpf"
+	"github.com/VladMinzatu/ebpf-profiler/internal/pprof"
 	"github.com/VladMinzatu/ebpf-profiler/internal/profiler"
 	"github.com/VladMinzatu/ebpf-profiler/internal/symbolizer"
 )
@@ -36,17 +37,39 @@ func main() {
 		slog.Error("Failed to start profiler", "error", err)
 		os.Exit(1)
 	}
-	defer p.Stop()
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
+	var writePprof sync.WaitGroup
+
+	writePprof.Add(1)
 	go func() {
+		defer writePprof.Done()
+		var collectedSamples []profiler.Sample
 		samples := p.Samples()
 		for s := range samples {
 			for _, sample := range s {
-				fmt.Println(sample)
+				collectedSamples = append(collectedSamples, sample)
 			}
+		}
+		prof, err := pprof.BuildPprofProfile(collectedSamples, "cpu", "nanoseconds")
+		if err != nil {
+			slog.Error("Failed to build pprof Profile from the collected samples")
+			return
+		}
+
+		f, err := os.Create("cpu-profile.pb.gz")
+		if err != nil {
+			slog.Error("Failed to create output file for profile")
+			return
+		}
+		defer f.Close()
+
+		err = pprof.WriteProfileGzip(prof, f)
+		if err != nil {
+			slog.Error("Failed to write cpu profile to disk")
+			return
 		}
 	}()
 
@@ -58,6 +81,9 @@ func main() {
 	}()
 
 	<-stop
+	p.Stop() // stop the profiler - should close the samples channel
+
+	writePprof.Wait()
 }
 
 //go:noinline
