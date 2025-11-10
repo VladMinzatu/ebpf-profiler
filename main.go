@@ -59,16 +59,9 @@ func main() {
 			return
 		}
 
-		f, err := os.Create("cpu-profile.pb.gz")
+		err = pprof.WriteProfile(prof, "cpu-profile.pb")
 		if err != nil {
 			slog.Error("Failed to create output file for profile")
-			return
-		}
-		defer f.Close()
-
-		err = pprof.WriteProfileGzip(prof, f)
-		if err != nil {
-			slog.Error("Failed to write cpu profile to disk")
 			return
 		}
 	}()

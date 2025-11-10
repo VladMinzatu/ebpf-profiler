@@ -1,8 +1,7 @@
 package pprof
 
 import (
-	"compress/gzip"
-	"io"
+	"os"
 	"sort"
 
 	"github.com/VladMinzatu/ebpf-profiler/internal/profiler"
@@ -100,8 +99,12 @@ func BuildPprofProfile(samples []profiler.Sample, sampleTypeName, sampleTypeUnit
 	return p, nil
 }
 
-func WriteProfileGzip(p *profile.Profile, w io.Writer) error {
-	gw := gzip.NewWriter(w)
-	defer gw.Close()
-	return p.Write(gw)
+func WriteProfile(p *profile.Profile, filename string) error {
+	f, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	return p.Write(f)
 }
