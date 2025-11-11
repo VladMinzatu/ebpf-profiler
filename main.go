@@ -53,13 +53,13 @@ func main() {
 				collectedSamples = append(collectedSamples, sample)
 			}
 		}
-		prof, err := exporter.BuildPprofProfile(collectedSamples, "cpu", "nanoseconds")
+		stacks := exporter.BuildFoldedStacks(collectedSamples, exporter.User)
 		if err != nil {
 			slog.Error("Failed to build pprof Profile from the collected samples")
 			return
 		}
 
-		err = exporter.WriteProfile(prof, "cpu-profile.pb")
+		err = exporter.WriteFoldedStacksToFile(stacks, "stacks.txt")
 		if err != nil {
 			slog.Error("Failed to create output file for profile")
 			return
