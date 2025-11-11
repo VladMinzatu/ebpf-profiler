@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/VladMinzatu/ebpf-profiler/internal/ebpf"
-	"github.com/VladMinzatu/ebpf-profiler/internal/pprof"
+	"github.com/VladMinzatu/ebpf-profiler/internal/exporter"
 	"github.com/VladMinzatu/ebpf-profiler/internal/profiler"
 	"github.com/VladMinzatu/ebpf-profiler/internal/symbolizer"
 )
@@ -53,13 +53,13 @@ func main() {
 				collectedSamples = append(collectedSamples, sample)
 			}
 		}
-		prof, err := pprof.BuildPprofProfile(collectedSamples, "cpu", "nanoseconds")
+		prof, err := exporter.BuildPprofProfile(collectedSamples, "cpu", "nanoseconds")
 		if err != nil {
 			slog.Error("Failed to build pprof Profile from the collected samples")
 			return
 		}
 
-		err = pprof.WriteProfile(prof, "cpu-profile.pb")
+		err = exporter.WriteProfile(prof, "cpu-profile.pb")
 		if err != nil {
 			slog.Error("Failed to create output file for profile")
 			return
