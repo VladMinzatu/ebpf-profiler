@@ -53,17 +53,7 @@ func main() {
 				collectedSamples = append(collectedSamples, sample)
 			}
 		}
-		stacks := exporter.BuildFoldedStacks(collectedSamples, exporter.User)
-		if err != nil {
-			slog.Error("Failed to build pprof Profile from the collected samples")
-			return
-		}
-
-		err = exporter.WriteFoldedStacksToFile(stacks, "stacks.txt")
-		if err != nil {
-			slog.Error("Failed to create output file for profile")
-			return
-		}
+		writeSamplesAsPprof(collectedSamples)
 	}()
 
 	go func() {
@@ -77,6 +67,30 @@ func main() {
 	p.Stop() // stop the profiler - should close the samples channel
 
 	writePprof.Wait()
+}
+
+func writeSamplesAsPprof(samples []profiler.Sample) {
+	prof, err := exporter.BuildPprofProfile(samples, "cpu", "nanoseconds")
+	if err != nil {
+		slog.Error("Failed to build pprof Profile from the collected samples")
+		return
+	}
+
+	err = exporter.WriteProfile(prof, "profile.pb")
+	if err != nil {
+		slog.Error("Failed to write profile to output")
+		return
+	}
+}
+
+func writeSamplesAsFoldedStacks(samples []profiler.Sample, sel exporter.StackSelection) {
+	stacks := exporter.BuildFoldedStacks(samples, sel)
+
+	err := exporter.WriteFoldedStacksToFile(stacks, "stacks.txt")
+	if err != nil {
+		slog.Error("Failed to create output file for profile")
+		return
+	}
 }
 
 //go:noinline
