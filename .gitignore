@@ -33,3 +33,5 @@ go.work.sum
 
 ebpf-profiler
 
+profile.pb
+stacks.txt
