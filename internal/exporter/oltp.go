@@ -1,8 +1,6 @@
 package exporter
 
 import (
-	"time"
-
 	"github.com/VladMinzatu/ebpf-profiler/internal/profiler"
 	"github.com/VladMinzatu/ebpf-profiler/internal/symbolizer"
 	v1 "go.opentelemetry.io/proto/otlp/common/v1"
@@ -10,7 +8,10 @@ import (
 	resourceV1 "go.opentelemetry.io/proto/otlp/resource/v1"
 )
 
-func BuildOltpProfile(samples []profiler.Sample) *profilespb.ProfilesData {
+type NowFunc func() uint64 // produces unix nsec
+
+func BuildOltpProfile(samples []profiler.Sample, now NowFunc) *profilespb.ProfilesData {
+	nowNsec := now()
 	stringTable := []string{""}
 	mappingTable := []*profilespb.Mapping{{}}
 	locationTable := []*profilespb.Location{{}}
@@ -83,9 +84,8 @@ func BuildOltpProfile(samples []profiler.Sample) *profilespb.ProfilesData {
 		profileSamples = append(profileSamples, pbSample)
 	}
 
-	now := uint64(time.Now().UnixNano())
 	profile := &profilespb.Profile{
-		TimeUnixNano: now,
+		TimeUnixNano: nowNsec,
 		DurationNano: uint64(0),
 		SampleType:   sampleType,
 		Samples:      profileSamples,
