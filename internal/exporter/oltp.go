@@ -1,11 +1,15 @@
 package exporter
 
 import (
+	"os"
+
 	"github.com/VladMinzatu/ebpf-profiler/internal/profiler"
 	"github.com/VladMinzatu/ebpf-profiler/internal/symbolizer"
+	collectorpb "go.opentelemetry.io/proto/otlp/collector/profiles/v1development"
 	v1 "go.opentelemetry.io/proto/otlp/common/v1"
 	profilespb "go.opentelemetry.io/proto/otlp/profiles/v1development"
 	resourceV1 "go.opentelemetry.io/proto/otlp/resource/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 type NowFunc func() uint64 // produces unix nsec
@@ -127,4 +131,28 @@ func strIndex(table *[]string, s string) int32 {
 	}
 	*table = append(*table, s)
 	return int32(len(*table) - 1)
+}
+
+func WriteOltpProfile(prof *profilespb.ProfilesData, filename string) error {
+	f, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	req := &collectorpb.ExportProfilesServiceRequest{
+		ResourceProfiles: []*profilespb.ResourceProfiles{},
+		Dictionary:       prof.Dictionary,
+	}
+
+	if prof != nil && len(prof.ResourceProfiles) > 0 {
+		req.ResourceProfiles = append(req.ResourceProfiles, prof.ResourceProfiles...)
+	}
+
+	body, err := proto.Marshal(req)
+	if err != nil {
+		return err
+	}
+	f.Write(body)
+	return nil
 }

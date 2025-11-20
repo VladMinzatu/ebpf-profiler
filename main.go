@@ -53,7 +53,7 @@ func main() {
 				collectedSamples = append(collectedSamples, sample)
 			}
 		}
-		writeSamplesAsPprof(collectedSamples)
+		writeSamplesAsOltp(collectedSamples)
 	}()
 
 	go func() {
@@ -77,6 +77,16 @@ func writeSamplesAsPprof(samples []profiler.Sample) {
 	}
 
 	err = exporter.WriteProfile(prof, "profile.pb")
+	if err != nil {
+		slog.Error("Failed to write profile to output")
+		return
+	}
+}
+
+func writeSamplesAsOltp(samples []profiler.Sample) {
+	prof := exporter.BuildOltpProfile(samples, func() uint64 { return uint64(time.Now().UnixNano()) })
+
+	err := exporter.WriteOltpProfile(prof, "profile.pb")
 	if err != nil {
 		slog.Error("Failed to write profile to output")
 		return
